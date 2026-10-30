@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Enterprise Security & Vulnerability Reporting
+    # airgap-allow: repository reference
+    url: https://github.com/getvedara/vedara/security/policy
+    about: Review our responsible disclosure protocol and zero-telemetry policy.
+  - name: Community Discussions & Model Tuning
+    # airgap-allow: repository reference
+    url: https://github.com/getvedara/vedara/discussions
+    about: Discuss local model prompts, GGUF quantization, and hardware setups.

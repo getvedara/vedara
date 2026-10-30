@@ -1,0 +1,9 @@
+{
+  "id": "ts-add-param-cache-ttl",
+  "language": "typescript",
+  "difficulty": "hard",
+  "kind": "add-param",
+  "instruction": "Give `LruCache` an optional time-to-live. Add a third constructor parameter `ttlMs = Infinity` (after `now`). Store the insertion time with each entry in `set`; `get` and `has` must treat an entry older than `ttlMs` (now - insertedAt >= ttlMs) as missing and delete it. Keep the LRU behaviour unchanged.",
+  "files": ["lru.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

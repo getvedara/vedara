@@ -1,0 +1,316 @@
+{
+  "name": "vedara-vscode",
+  "displayName": "Vedara — Local AI",
+  "description": "Private, offline AI coding with local models via Ollama: Tab completion, chat, reviewed multi-file edits and one-click undo. No cloud, no account, no telemetry.",
+  "version": "0.1.0",
+  "publisher": "vedara",
+  "preview": true,
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "offline",
+    "local",
+    "local-ai",
+    "ollama",
+    "privacy",
+    "air-gapped",
+    "autocomplete",
+    "tab-completion",
+    "next-edit",
+    "qwen",
+    "checkpoints",
+    "code-review"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getvedara/vedara.git",
+    "directory": "extensions/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/getvedara/vedara/issues"
+  },
+  "homepage": "https://github.com/getvedara/vedara#readme",
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#0b0d10",
+    "theme": "dark"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "icons": {
+      "vedara-logo": {
+        "description": "Vedara Official Emblem",
+        "default": {
+          "fontPath": "resources/vedara.woff",
+          "fontCharacter": "\\e000"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "vedara.checkHealth",
+        "title": "Vedara: Check Local AI Health",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.importContinueSettings",
+        "title": "Vedara: Import Continue Settings",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.setApiKey",
+        "title": "Vedara: Set Server API Key",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.recommendModels",
+        "title": "Vedara: Recommend Local Models",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.triggerAutocomplete",
+        "title": "Vedara: Trigger Local AI Autocomplete",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.applyFrugalDiff",
+        "title": "Vedara: Apply Frugal Diff Patch",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.previewFrugalDiff",
+        "title": "Vedara: Preview Frugal Diff (Side-by-Side)",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.rollbackLastDiff",
+        "title": "Vedara: Rollback Last Applied Diff",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.showCheckpoints",
+        "title": "Vedara: Show Checkpoints",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.openChat",
+        "title": "Vedara: Open AI Chat",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.explainCode",
+        "title": "Vedara: Explain Selected Code",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.refactorCode",
+        "title": "Vedara: Refactor Selected Code",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.generateTests",
+        "title": "Vedara: Generate Tests for Selection",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.fixCode",
+        "title": "Vedara: Fix Bugs in Selected Code",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.nextEdit.trigger",
+        "title": "Vedara: Predict Next Edit (Experimental)",
+        "category": "Vedara"
+      },
+      {
+        "command": "vedara.nextEdit.accept",
+        "title": "Vedara: Accept Predicted Next Edit",
+        "category": "Vedara",
+        "enablement": "vedara.nextEditVisible"
+      },
+      {
+        "command": "vedara.nextEdit.dismiss",
+        "title": "Vedara: Dismiss Predicted Next Edit",
+        "category": "Vedara",
+        "enablement": "vedara.nextEditVisible"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vedara-sidebar",
+          "title": "Vedara",
+          "icon": "$(vedara-logo)"
+        }
+      ]
+    },
+    "views": {
+      "vedara-sidebar": [
+        {
+          "type": "webview",
+          "id": "vedara.chatView",
+          "name": "Vedara AI Chat",
+          "icon": "$(vedara-logo)"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "vedara.explainCode",
+          "when": "editorHasSelection",
+          "group": "Vedara@1"
+        },
+        {
+          "command": "vedara.refactorCode",
+          "when": "editorHasSelection",
+          "group": "Vedara@2"
+        },
+        {
+          "command": "vedara.generateTests",
+          "when": "editorHasSelection",
+          "group": "Vedara@3"
+        },
+        {
+          "command": "vedara.fixCode",
+          "when": "editorHasSelection",
+          "group": "Vedara@4"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Vedara Local AI",
+      "properties": {
+        "vedara.serverType": {
+          "type": "string",
+          "enum": ["ollama", "openai"],
+          "enumDescriptions": [
+            "Ollama, on this machine or another one.",
+            "Any OpenAI-compatible server: vLLM, llama.cpp (llama-server), LM Studio, or a team GPU server."
+          ],
+          "default": "ollama",
+          "markdownDescription": "Which kind of model server Vedara talks to. An organization policy file can set this for everyone; see the README."
+        },
+        "vedara.ollamaEndpoint": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "Base URL of the Ollama server, used when Server Type is ollama."
+        },
+        "vedara.openaiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000/v1",
+          "markdownDescription": "Base URL of the OpenAI-compatible server, including `/v1`, used when Server Type is `openai`. Set an API key, if the server needs one, with **Vedara: Set Server API Key**."
+        },
+        "vedara.openaiAutocompleteBaseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Base URL for Tab completion when the Tab model runs on its own OpenAI-compatible server (vLLM and llama.cpp serve one model per server). Leave empty to use **Openai Base Url** for both."
+        },
+        "vedara.autocompleteModel": {
+          "type": "string",
+          "default": "qwen2.5-coder:1.5b-base",
+          "examples": [
+            "qwen2.5-coder:1.5b-base",
+            "qwen2.5-coder:0.5b-base",
+            "qwen2.5-coder:3b-base"
+          ],
+          "markdownDescription": "Local Ollama model for inline Tab (fill-in-the-middle) completion. Use a small FIM-trained **base** coder: `qwen2.5-coder:1.5b-base` (default, ~1 GB), `qwen2.5-coder:0.5b-base` for low-memory machines, or `qwen2.5-coder:3b-base` for 16 GB+. Instruction-tuned chat models are poor at FIM."
+        },
+        "vedara.chatModel": {
+          "type": "string",
+          "default": "qwen2.5-coder:7b",
+          "examples": [
+            "qwen3-coder:30b",
+            "qwen3.6:27b",
+            "devstral-small-2:24b",
+            "gpt-oss:20b",
+            "qwen2.5-coder:7b"
+          ],
+          "markdownDescription": "Local Ollama model for chat and SEARCH/REPLACE edits. Suggested (2026): `qwen3-coder:30b` (Qwen3-Coder-30B-A3B, 32 GB+), `qwen3.6:27b` (Qwen3.6-27B, 32 GB+), `devstral-small-2:24b` (Devstral Small 2, 24 GB+), `gpt-oss:20b` (16 GB+). The default `qwen2.5-coder:7b` runs on 8 GB. Run **Vedara: Recommend Local Models** for a pairing based on this machine and what is installed."
+        },
+        "vedara.debounceMs": {
+          "type": "number",
+          "default": 30,
+          "description": "Typing debounce delay in milliseconds before dispatching inference."
+        },
+        "vedara.maxPrefixChars": {
+          "type": "number",
+          "default": 1000,
+          "description": "Maximum characters before cursor included in FIM prompt."
+        },
+        "vedara.maxSuffixChars": {
+          "type": "number",
+          "default": 500,
+          "description": "Maximum characters after cursor included in FIM prompt."
+        },
+        "vedara.temperature": {
+          "type": "number",
+          "default": 0.1,
+          "description": "Sampling temperature for inline code completion (0.0 to 1.0)."
+        },
+        "vedara.contextLength": {
+          "type": "number",
+          "default": 8192,
+          "minimum": 2048,
+          "maximum": 131072,
+          "markdownDescription": "Context window (in tokens) for chat and Tab completion. It must hold the current file, recent conversation and the reply. Larger values use more GPU memory; lower it if `ollama ps` shows the model running partly on the CPU."
+        },
+        "vedara.checkpoints.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Before every AI edit, snapshot the git workspace (including untracked files and unsaved editors) under refs/ai-checkpoints/. Never moves HEAD or touches the staging area. Restore via 'Vedara: Show Checkpoints'."
+        },
+        "vedara.checkpoints.maxPerBranch": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "description": "Number of AI checkpoints kept per branch; older checkpoint refs are deleted."
+        },
+        "vedara.nextEdit.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**Experimental.** Predict your next edit near the cursor with a local Zeta 2 model (`zed-industries/zeta-2`) served by Ollama, using your recent edits as context. The prediction appears as a highlighted change: `Tab` accepts, `Esc` dismisses."
+        },
+        "vedara.nextEdit.model": {
+          "type": "string",
+          "default": "hf.co/bartowski/zed-industries_zeta-2-GGUF:Q4_K_M",
+          "markdownDescription": "Ollama model tag for next-edit prediction. Must be a Zeta 2 GGUF (the prompt format is model-specific). Pull it once with `ollama pull hf.co/bartowski/zed-industries_zeta-2-GGUF:Q4_K_M` (about 5 GB; Q8_0 is also available)."
+        },
+        "vedara.nextEdit.debounceMs": {
+          "type": "number",
+          "default": 400,
+          "description": "Pause after typing before requesting a next-edit prediction (milliseconds)."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "vedara.nextEdit.accept",
+        "key": "tab",
+        "when": "editorTextFocus && vedara.nextEditVisible && !inlineSuggestionVisible && !suggestWidgetVisible"
+      },
+      {
+        "command": "vedara.nextEdit.dismiss",
+        "key": "escape",
+        "when": "editorTextFocus && vedara.nextEditVisible"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "vitest run",
+    "package": "vsce package --no-dependencies",
+    "bundle:offline": "node scripts/offline-bundle.js"
+  }
+}

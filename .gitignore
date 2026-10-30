@@ -1,0 +1,61 @@
+# .gitignore for Vedara
+
+# OS Metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python / Scripts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Rust / Cargo
+target/
+Cargo.lock
+**/*.rs.bk
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+out/
+*.vsix
+.vscode-test/
+.next/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Tauri v2
+src-tauri/target/
+
+# Local Environment & Secrets
+.env
+.env*.local
+*.pem
+*.key
+
+# Vedara Runtime Checkpoints & Local Indices
+.vedara/
+.openstudio/
+.ai-checkpoints/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Internal Strategy, Blueprints & Execution Plans (Local Only)
+*.pdf
+OPEN_STUDIO_EXECUTION_MASTERPLAN.md
+RECOMMENDATIONS.md
+RELEASE_CANDIDATE_NOTES.md
+build_pdf.py
+generate_icons.py
+bench/
+docs/launch/
+ee/

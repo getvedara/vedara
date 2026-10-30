@@ -1,0 +1,9 @@
+{
+  "id": "py-refactor-dataclass",
+  "language": "python",
+  "difficulty": "medium",
+  "kind": "refactor",
+  "instruction": "Convert `Shipment` into a `@dataclass(frozen=True)` with the same fields, types and defaults (remove the hand-written __init__, __eq__ and __repr__). Keep the `total_weight` method and the `heavier` function working.",
+  "files": ["shipment.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

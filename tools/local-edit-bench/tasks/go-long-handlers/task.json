@@ -1,0 +1,13 @@
+{
+  "id": "go-long-handlers",
+  "language": "go",
+  "difficulty": "hard",
+  "kind": "bugfix",
+  "instruction": "In `HandleListWarehouses`, change the default page size (`pageSize := 20`) to 50. Leave every other handler unchanged.",
+  "files": [
+    "handlers.go"
+  ],
+  "check": {
+    "type": "normalized"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "ts-long-reducer-rename",
+  "language": "typescript",
+  "difficulty": "hard",
+  "kind": "rename",
+  "instruction": "Rename the action type constant `ORDER_ITEM_REMOVED` to `ORDER_LINE_REMOVED` and change its string value from 'order/itemRemoved' to 'order/lineRemoved'. Update every use of the constant. Do not rename the `orderItemRemoved` action creator or touch any other action type.",
+  "files": [
+    "reducer.ts"
+  ],
+  "check": {
+    "type": "node-test",
+    "entry": "check.ts"
+  }
+}

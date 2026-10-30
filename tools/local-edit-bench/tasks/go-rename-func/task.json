@@ -1,0 +1,9 @@
+{
+  "id": "go-rename-func",
+  "language": "go",
+  "difficulty": "easy",
+  "kind": "rename",
+  "instruction": "Rename the function `CalcShipping` to `ShippingCost`, including its doc comment and every call site in the file. Change nothing else.",
+  "files": ["shipping.go"],
+  "check": { "type": "normalized" }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "ts-refactor-tax-rate",
+  "language": "typescript",
+  "difficulty": "medium",
+  "kind": "refactor",
+  "instruction": "The tax rate 0.0825 is hard-coded in three places. Introduce an exported constant `TAX_RATE` at the top of the file and use it everywhere instead of the literal. Set the constant to 0.09 (the new rate); the number should appear only in the constant.",
+  "files": ["invoice.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

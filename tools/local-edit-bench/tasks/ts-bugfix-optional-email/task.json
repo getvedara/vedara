@@ -1,0 +1,9 @@
+{
+  "id": "ts-bugfix-optional-email",
+  "language": "typescript",
+  "difficulty": "easy",
+  "kind": "bugfix",
+  "instruction": "`contactLine` crashes when a contact has no email. Make it return just the name in that case (e.g. 'Grace Hopper'), and keep the existing 'Name <email>' output when an email is present.",
+  "files": ["contacts.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

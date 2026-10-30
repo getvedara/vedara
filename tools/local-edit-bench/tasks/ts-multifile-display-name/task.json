@@ -1,0 +1,9 @@
+{
+  "id": "ts-multifile-display-name",
+  "language": "typescript",
+  "difficulty": "hard",
+  "kind": "multi-file",
+  "instruction": "Rename the `userName` field of the `User` interface to `displayName` in models.ts, and update every use of it in both models.ts and directory.ts (including the `makeUser` parameter name).",
+  "files": ["models.ts", "directory.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

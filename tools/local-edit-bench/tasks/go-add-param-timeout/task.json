@@ -1,0 +1,9 @@
+{
+  "id": "go-add-param-timeout",
+  "language": "go",
+  "difficulty": "medium",
+  "kind": "add-param",
+  "instruction": "Add a second parameter `timeout time.Duration` to `NewClient` and assign it to the `Timeout` field instead of the hard-coded `30 * time.Second`. Update the call in `NewDefaultClient` to pass `30 * time.Second` as the new argument. Change nothing else.",
+  "files": ["client.go"],
+  "check": { "type": "normalized" }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "py-feature-timer-context",
+  "language": "python",
+  "difficulty": "medium",
+  "kind": "feature",
+  "instruction": "Make `Timer` usable as a context manager: `with Timer(clock) as t:` should call start() on entry and return the timer, and call stop() on exit, also when an exception is raised (the exception must propagate).",
+  "files": ["timer.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "py-long-serializers",
+  "language": "python",
+  "difficulty": "hard",
+  "kind": "add-param",
+  "instruction": "Add a keyword parameter `include_id: bool = True` to `WarehouseSerializer.serialize`. When it is False, the payload must not contain \"id\". Do not change any other serializer.",
+  "files": [
+    "serializers.py"
+  ],
+  "check": {
+    "type": "python-test",
+    "entry": "check.py"
+  }
+}

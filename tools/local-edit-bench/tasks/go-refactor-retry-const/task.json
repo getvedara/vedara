@@ -1,0 +1,9 @@
+{
+  "id": "go-refactor-retry-const",
+  "language": "go",
+  "difficulty": "medium",
+  "kind": "refactor",
+  "instruction": "The literal 3 is used as the retry limit in both `FetchWithRetry` and `PostWithRetry`. Add a package-level constant `const MaxRetries = 3` directly after the import block and use `MaxRetries` in place of the literal in both loop conditions. Change nothing else.",
+  "files": ["retry.go"],
+  "check": { "type": "normalized" }
+}

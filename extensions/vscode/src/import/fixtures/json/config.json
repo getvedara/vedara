@@ -1,0 +1,29 @@
+{
+  // Legacy Continue config.json
+  "models": [
+    {
+      "title": "Llama via LM Studio",
+      "provider": "lmstudio",
+      "model": "llama-3.1-8b",
+      "apiBase": "http://localhost:1234/v1"
+    },
+    {
+      "title": "Devstral (Ollama OpenAI-compat)",
+      "provider": "openai",
+      "model": "devstral:24b",
+      "apiBase": "http://127.0.0.1:11434/v1/"
+    },
+    {
+      "title": "Remote Ollama",
+      "provider": "ollama",
+      "model": "big-model:70b",
+      "apiBase": "http://gpu-box.lan:11434" // airgap-allow: fixture proving remote endpoints are rejected
+    }
+  ],
+  "tabAutocompleteModel": {
+    "title": "Starcoder",
+    "provider": "ollama",
+    "model": "starcoder2:3b",
+  },
+  /* trailing commas and comments are tolerated */
+}

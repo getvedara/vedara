@@ -1,0 +1,9 @@
+{
+  "id": "rs-refactor-option-result",
+  "language": "rust",
+  "difficulty": "hard",
+  "kind": "refactor",
+  "instruction": "Change `Registry::find` to return `Result<&User, LookupError>` instead of `Option<&User>`, where `LookupError` is a new public enum `#[derive(Debug, PartialEq)] pub enum LookupError { NotFound(u32) }` carrying the requested id. Update `display_name` to use the new return type; its behaviour must not change.",
+  "files": ["registry.rs"],
+  "check": { "type": "rust-test", "entry": "check.rs" }
+}

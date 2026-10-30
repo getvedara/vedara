@@ -1,0 +1,9 @@
+{
+  "id": "rs-multifile-unit-variant",
+  "language": "rust",
+  "difficulty": "hard",
+  "kind": "multi-file",
+  "instruction": "Rename the enum variant `Unit::Kilo` to `Unit::Kilogram` in types.rs and update every use in types.rs and convert.rs. Also change its symbol returned by `Unit::symbol` from \"k\" to \"kg\".",
+  "files": ["types.rs", "convert.rs"],
+  "check": { "type": "rust-test", "entry": "check.rs" }
+}

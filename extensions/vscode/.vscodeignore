@@ -1,0 +1,16 @@
+.vscode/**
+.vscode-test/**
+src/**
+**/*.ts
+**/*.map
+node_modules/**
+*.log
+vitest.config.*
+tsconfig.json
+coverage/**
+e2e/**
+
+offline/**
+scripts/**
+dist/**
+*.vsix

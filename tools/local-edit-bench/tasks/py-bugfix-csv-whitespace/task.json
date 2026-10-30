@@ -1,0 +1,9 @@
+{
+  "id": "py-bugfix-csv-whitespace",
+  "language": "python",
+  "difficulty": "easy",
+  "kind": "bugfix",
+  "instruction": "`parse_row` fails on rows with spaces around the commas (e.g. 'widget , 3 , 2.50') and keeps a trailing newline in the last column. Strip whitespace from every field before converting.",
+  "files": ["rows.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

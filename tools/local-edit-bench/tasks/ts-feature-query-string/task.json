@@ -1,0 +1,9 @@
+{
+  "id": "ts-feature-query-string",
+  "language": "typescript",
+  "difficulty": "medium",
+  "kind": "feature",
+  "instruction": "Make `buildQuery` support array values: a key whose value is an array is emitted once per element, in order (e.g. { tag: ['a', 'b'] } -> 'tag=a&tag=b'). Empty arrays emit nothing. Widen the `QueryValue` type accordingly. Keep keys sorted and the existing handling of undefined/null.",
+  "files": ["query.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "go-multifile-item-type",
+  "language": "go",
+  "difficulty": "hard",
+  "kind": "multi-file",
+  "instruction": "Rename the type `Item` to `Product` in model.go and update every reference to it in model.go and store.go (type names, composite literals, slices and maps, and the `NewItem` constructor, which becomes `NewProduct`). Change nothing else.",
+  "files": ["model.go", "store.go"],
+  "check": { "type": "normalized" }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "py-bugfix-missing-key",
+  "language": "python",
+  "difficulty": "easy",
+  "kind": "bugfix",
+  "instruction": "`summarize_event` raises KeyError for events without a location or without attendees. Treat a missing location as \"online\" and missing attendees as an empty list.",
+  "files": ["events.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "ts-bugfix-retry-await",
+  "language": "typescript",
+  "difficulty": "medium",
+  "kind": "bugfix",
+  "instruction": "`withRetry` never retries: a rejected promise from `fn()` escapes the try/catch. Fix it so that rejections are caught and retried up to `attempts` times, waiting `delayMs` between tries, and the last error is rethrown.",
+  "files": ["retry.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

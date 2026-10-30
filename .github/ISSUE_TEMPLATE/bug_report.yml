@@ -1,0 +1,76 @@
+name: Bug Report
+description: Report an issue, crash, or unexpected behavior in Vedara.
+title: "[BUG]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! Vedara is 100% offline and zero-telemetry, so your detailed logs and environment description are essential for reproducing and fixing issues.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you running Vedara on?
+      options:
+        - Windows 11 (x64)
+        - Windows 10 (x64)
+        - macOS (Apple Silicon M1/M2/M3/M4)
+        - macOS (Intel x64)
+        - Linux Ubuntu / Debian (.deb)
+        - Linux Other (.AppImage)
+        - Other (specify in description)
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware Profile
+      description: GPU model, VRAM capacity, and total system RAM.
+      placeholder: "e.g. NVIDIA RTX 4070 (12GB VRAM), 32GB System RAM, or Apple M2 Pro (16GB)"
+    validations:
+      required: true
+  - type: input
+    id: inference_setup
+    attributes:
+      label: Local Inference Engine & Models
+      description: Ollama version and models configured for autocomplete and chat.
+      placeholder: "e.g. Ollama 0.5.4, qwen2.5-coder:1.5b (FIM) + qwen2.5-coder:7b (Chat)"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Describe the exact sequence of actions that triggered the issue.
+      placeholder: |
+        1. Open a workspace folder.
+        2. Create a new TypeScript file.
+        3. Trigger autocomplete or chat refactoring.
+        4. See error.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior & Logs
+      description: Paste any error messages, terminal logs, or reproduction outputs.
+    validations:
+      required: true
+  - type: checkboxes
+    id: airgap_check
+    attributes:
+      label: Air-Gap Verification
+      description: Confirm privacy and offline reproducibility.
+      options:
+        - label: I confirm this issue reproduces locally without any internet connection.
+          required: true
+        - label: I have verified that no sensitive or private source code is included in this public bug report.
+          required: true

@@ -1,0 +1,9 @@
+{
+  "id": "ts-feature-order-status",
+  "language": "typescript",
+  "difficulty": "medium",
+  "kind": "feature",
+  "instruction": "Add a new order status 'refunded'. Add it to the `OrderStatus` union, give it the label 'Refunded' in `STATUS_LABELS`, allow the transition 'delivered' -> 'refunded' (and no transitions out of 'refunded'), and make `isFinal` return true for it.",
+  "files": ["orders.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

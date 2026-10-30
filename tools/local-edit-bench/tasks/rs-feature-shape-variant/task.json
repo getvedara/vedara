@@ -1,0 +1,9 @@
+{
+  "id": "rs-feature-shape-variant",
+  "language": "rust",
+  "difficulty": "medium",
+  "kind": "feature",
+  "instruction": "Add a `Triangle { base: f64, height: f64 }` variant to `Shape`. Its area is base * height / 2, its name is \"triangle\", and `scale` must scale both base and height by the factor.",
+  "files": ["shapes.rs"],
+  "check": { "type": "rust-test", "entry": "check.rs" }
+}

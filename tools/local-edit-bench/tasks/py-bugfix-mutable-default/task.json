@@ -1,0 +1,9 @@
+{
+  "id": "py-bugfix-mutable-default",
+  "language": "python",
+  "difficulty": "easy",
+  "kind": "bugfix",
+  "instruction": "`add_tag` uses a mutable default argument, so tags leak between unrelated calls. Fix it so each call without `tags` starts from a new empty list. Keep the signature's parameter names.",
+  "files": ["tags.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

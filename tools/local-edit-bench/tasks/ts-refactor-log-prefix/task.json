@@ -1,0 +1,9 @@
+{
+  "id": "ts-refactor-log-prefix",
+  "language": "typescript",
+  "difficulty": "medium",
+  "kind": "refactor",
+  "instruction": "Every method of `SyncJob` logs with a hand-written '[sync]' prefix. Add a private method `log(message: string)` that calls `this.logger(`[sync:${this.name}] ${message}`)`, and make start, step and finish use it, so their messages carry the job name. Keep the message text after the prefix unchanged.",
+  "files": ["job.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "py-multifile-timeout",
+  "language": "python",
+  "difficulty": "hard",
+  "kind": "multi-file",
+  "instruction": "Rename the `timeout` setting to `timeout_seconds` everywhere: the `Config` field in config.py, the key read from the parsed mapping in loader.py (the input key becomes \"timeout_seconds\" too), and every reference in both files. Keep the default of 30.",
+  "files": ["config.py", "loader.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "py-bugfix-date-range",
+  "language": "python",
+  "difficulty": "easy",
+  "kind": "bugfix",
+  "instruction": "`date_range` is documented as inclusive of `end` but omits the last day. Fix it. When `end` is before `start` it should still return an empty list.",
+  "files": ["dates.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

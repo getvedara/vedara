@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened Runtime entitlements for Vedara (100% Offline AI IDE) -->
+    <!-- Allow local loopback socket connections (http://localhost:11434 for Ollama) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <!-- Allow access to user-selected files and project workspaces -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <!-- JIT & WebKit JavaScript engine permissions for Monaco Editor & UI shell -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>

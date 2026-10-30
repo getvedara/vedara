@@ -1,0 +1,9 @@
+{
+  "id": "go-bugfix-adult-age",
+  "language": "go",
+  "difficulty": "easy",
+  "kind": "bugfix",
+  "instruction": "`IsAdult` returns false for someone who is exactly 18. Fix the comparison so it reads `age >= AdultAge`. Change nothing else.",
+  "files": ["age.go"],
+  "check": { "type": "normalized" }
+}

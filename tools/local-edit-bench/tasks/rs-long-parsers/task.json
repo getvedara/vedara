@@ -1,0 +1,14 @@
+{
+  "id": "rs-long-parsers",
+  "language": "rust",
+  "difficulty": "hard",
+  "kind": "bugfix",
+  "instruction": "`parse_pallet` swaps the height and weight fields when building the `Pallet`. Fix it so each field gets its own value, like the other parsers.",
+  "files": [
+    "parsers.rs"
+  ],
+  "check": {
+    "type": "rust-test",
+    "entry": "check.rs"
+  }
+}

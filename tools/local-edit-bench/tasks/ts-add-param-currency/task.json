@@ -1,0 +1,9 @@
+{
+  "id": "ts-add-param-currency",
+  "language": "typescript",
+  "difficulty": "medium",
+  "kind": "add-param",
+  "instruction": "Add an optional second parameter `currency: string = 'USD'` to `formatPrice` and pass it to `Intl.NumberFormat` instead of the hard-coded 'USD'. Then make `formatInvoiceLine` accept an optional third parameter `currency` (default 'USD') and forward it to `formatPrice`.",
+  "files": ["money.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "rs-add-param-decimals",
+  "language": "rust",
+  "difficulty": "medium",
+  "kind": "add-param",
+  "instruction": "Add a `decimals: usize` parameter (second position) to `format_percent` and use it as the number of digits after the decimal point instead of the fixed 1. Update `progress_line` to pass 1 so its output is unchanged.",
+  "files": ["percent.rs"],
+  "check": { "type": "rust-test", "entry": "check.rs" }
+}

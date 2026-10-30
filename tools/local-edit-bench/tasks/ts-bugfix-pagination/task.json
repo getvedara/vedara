@@ -1,0 +1,9 @@
+{
+  "id": "ts-bugfix-pagination",
+  "language": "typescript",
+  "difficulty": "easy",
+  "kind": "bugfix",
+  "instruction": "`pageCount` returns the wrong number of pages when the total is not an exact multiple of the page size (e.g. 101 items at 10 per page should be 11 pages). Fix it. Zero items should still be 0 pages.",
+  "files": ["paginate.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

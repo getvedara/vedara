@@ -1,0 +1,9 @@
+{
+  "id": "py-feature-deep-merge",
+  "language": "python",
+  "difficulty": "medium",
+  "kind": "feature",
+  "instruction": "Make `merge_settings` merge nested dictionaries recursively: when both the base and the override have a dict under the same key, merge those dicts (override wins on conflicts) instead of replacing the whole dict. Non-dict values keep the current behaviour. Neither input may be mutated.",
+  "files": ["settings.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

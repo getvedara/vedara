@@ -1,0 +1,9 @@
+{
+  "id": "rs-bugfix-saturating",
+  "language": "rust",
+  "difficulty": "easy",
+  "kind": "bugfix",
+  "instruction": "`Quota::remaining` panics with an overflow when `used` exceeds `limit` (debug builds). It should return 0 in that case. Fix it without changing the field types.",
+  "files": ["quota.rs"],
+  "check": { "type": "rust-test", "entry": "check.rs" }
+}

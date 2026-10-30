@@ -1,0 +1,14 @@
+{
+  "id": "py-long-crud",
+  "language": "python",
+  "difficulty": "hard",
+  "kind": "bugfix",
+  "instruction": "`delete_payment` looks up and deletes records in the wrong collection. Fix it so it operates on payments, like the other payment functions.",
+  "files": [
+    "crud.py"
+  ],
+  "check": {
+    "type": "python-test",
+    "entry": "check.py"
+  }
+}

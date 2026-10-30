@@ -1,0 +1,9 @@
+{
+  "id": "py-add-param-top-key",
+  "language": "python",
+  "difficulty": "medium",
+  "kind": "add-param",
+  "instruction": "Add an optional keyword parameter `key` (a function, default None) to `top_n`. When given, items are ranked by `key(item)` instead of by the item itself; ties keep their original order. Then use it in `top_spenders` so it ranks the customer dicts by their total directly instead of building intermediate tuples.",
+  "files": ["ranking.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

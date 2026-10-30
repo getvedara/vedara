@@ -1,0 +1,9 @@
+{
+  "id": "go-add-struct-field",
+  "language": "go",
+  "difficulty": "medium",
+  "kind": "feature",
+  "instruction": "Add a field `Email string` to `User`, directly after `Name`. Add a parameter `email string` to `NewUser`, directly after `name`, and set `Email: email` directly after `Name: name` in the struct literal. Update the call in `Guest` to pass an empty string \"\" as the email. Change nothing else.",
+  "files": ["user.go"],
+  "check": { "type": "normalized" }
+}

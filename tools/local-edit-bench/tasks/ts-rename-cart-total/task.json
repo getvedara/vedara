@@ -1,0 +1,9 @@
+{
+  "id": "ts-rename-cart-total",
+  "language": "typescript",
+  "difficulty": "easy",
+  "kind": "rename",
+  "instruction": "Rename the function `calcTotal` to `computeOrderTotal`, updating every call site in the file.",
+  "files": ["cart.ts"],
+  "check": { "type": "node-test", "entry": "check.ts" }
+}

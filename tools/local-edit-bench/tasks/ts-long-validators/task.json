@@ -1,0 +1,14 @@
+{
+  "id": "ts-long-validators",
+  "language": "typescript",
+  "difficulty": "hard",
+  "kind": "add-param",
+  "instruction": "Add an optional second parameter `maxLength: number = 64` to `validateShipment` and use it instead of the hard-coded 64 in every length check of that function. Do not change any other validator.",
+  "files": [
+    "validators.ts"
+  ],
+  "check": {
+    "type": "node-test",
+    "entry": "check.ts"
+  }
+}

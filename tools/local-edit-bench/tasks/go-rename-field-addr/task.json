@@ -1,0 +1,9 @@
+{
+  "id": "go-rename-field-addr",
+  "language": "go",
+  "difficulty": "medium",
+  "kind": "rename",
+  "instruction": "Rename the `Addr` field of `ServerConfig` to `ListenAddress` and update every use of it in the file (including the error message text \"addr is required\", which becomes \"listen address is required\"). Change nothing else.",
+  "files": ["config.go"],
+  "check": { "type": "normalized" }
+}

@@ -1,0 +1,40 @@
+name: Model Compatibility & Template Request
+description: Request support, special prompt templates, or calibration for a new local LLM.
+title: "[MODEL]: Support for "
+labels: ["models", "calibration"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Vedara supports Ollama, llama.cpp, and OpenAI-compatible local endpoints. Use this template to request automated role classification, prompt format tuning (FIM stop sequences, chat templates), or hardware recommendations for a specific model architecture.
+  - type: input
+    id: model_name
+    attributes:
+      label: Model Name & Tags
+      description: Exact model tag and HuggingFace / Ollama repository.
+      placeholder: "e.g. qwen2.5-coder:32b, deepseek-ai/DeepSeek-R1-Distill-Qwen-14B, or custom GGUF"
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Target Operational Role
+      description: What role should this model fulfill in Vedara?
+      options:
+        - Inline Autocomplete (Fill-In-The-Middle)
+        - Conversational Chat & Instructions
+        - Surgical Diff & Patch Engine
+        - Deep Reasoning & Architecture Planning
+    validations:
+      required: true
+  - type: textarea
+    id: prompt_format
+    attributes:
+      label: Special Prompt Templates or FIM Tokens
+      description: If this model uses non-standard prefix/suffix/middle tokens or system prompts, paste them here.
+      placeholder: "Prefix: <|fim_prefix|>, Suffix: <|fim_suffix|>, Middle: <|fim_middle|>"
+  - type: textarea
+    id: performance_notes
+    attributes:
+      label: Local Hardware & Benchmarks
+      description: Sizing, tokens/second, and context window observations on your local hardware.

@@ -1,0 +1,9 @@
+{
+  "id": "py-rename-class",
+  "language": "python",
+  "difficulty": "easy",
+  "kind": "rename",
+  "instruction": "Rename the class `Thermostat` to `ClimateController`, including its uses inside the module (type hints, the factory function and the repr).",
+  "files": ["climate.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

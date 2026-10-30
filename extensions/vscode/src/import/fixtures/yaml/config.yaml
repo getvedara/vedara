@@ -1,0 +1,46 @@
+# Continue config.yaml (schema v1) with a mix of local and cloud models
+name: Local Assistant
+version: 1.0.0
+schema: v1
+
+models:
+  - name: Qwen3 Coder 30B
+    provider: ollama
+    model: qwen3-coder:30b
+    apiBase: http://localhost:11434/
+    roles:
+      - chat
+      - edit
+      - apply
+    defaultCompletionOptions:
+      temperature: 0.2
+      contextLength: 32768
+
+  - name: Qwen2.5-Coder 1.5B   # FIM model for Tab
+    provider: ollama
+    model: "qwen2.5-coder:1.5b-base"
+    roles: [autocomplete]
+
+  - name: Nomic Embed
+    provider: ollama
+    model: nomic-embed-text:latest
+    roles:
+      - embed
+
+  - name: Claude
+    provider: anthropic
+    model: claude-sonnet
+    apiKey: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  - uses: someone/hub-model-block
+
+rules:
+  - Always write tests
+  - name: Style
+    rule: |
+      Prefer small functions.
+      Avoid globals.
+
+context:
+  - provider: code
+  - provider: diff

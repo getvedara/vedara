@@ -1,0 +1,9 @@
+{
+  "id": "py-bugfix-grid-neighbors",
+  "language": "python",
+  "difficulty": "medium",
+  "kind": "bugfix",
+  "instruction": "In `step`, the live-neighbour count includes the cell itself, which breaks the Game of Life rules. Skip the cell's own position when counting neighbours. Do not change anything else.",
+  "files": ["life.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

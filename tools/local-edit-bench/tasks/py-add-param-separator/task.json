@@ -1,0 +1,9 @@
+{
+  "id": "py-add-param-separator",
+  "language": "python",
+  "difficulty": "medium",
+  "kind": "add-param",
+  "instruction": "Add a keyword parameter `separator: str = \"-\"` to `slugify` and use it instead of the hard-coded '-' (both when joining words and when collapsing repeats). Make `unique_slug` accept and forward the same parameter, and use it before the numeric suffix too (e.g. 'my_post_2').",
+  "files": ["slug.py"],
+  "check": { "type": "python-test", "entry": "check.py" }
+}

@@ -1,0 +1,9 @@
+{
+  "serverType": "openai",
+  "endpoint": "http://gpu-server.internal:8000/v1",
+  "autocompleteEndpoint": "http://gpu-server.internal:8001/v1",
+  "chatModel": "Qwen/Qwen2.5-Coder-32B-Instruct",
+  "autocompleteModel": "Qwen/Qwen2.5-Coder-1.5B",
+  "contextLength": 16384,
+  "nextEditEnabled": false
+}

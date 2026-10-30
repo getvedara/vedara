@@ -1,0 +1,14 @@
+{
+  "id": "ts-long-route-handlers",
+  "language": "typescript",
+  "difficulty": "hard",
+  "kind": "bugfix",
+  "instruction": "`handleUpdateInvoice` returns status 400 when the invoice does not exist; it should return 404 like every other handler. Fix only that handler.",
+  "files": [
+    "handlers.ts"
+  ],
+  "check": {
+    "type": "node-test",
+    "entry": "check.ts"
+  }
+}
