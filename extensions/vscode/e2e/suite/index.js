@@ -149,6 +149,32 @@ test('chat edit: a loosely written edit is repaired and applied to an unsaved fi
   await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
 });
 
+test('chat insert: a code block goes in at the cursor with the chat focused, and Rollback undoes it', async () => {
+  const fileText = 'export const a = 1;\n';
+  const doc = await vscode.workspace.openTextDocument({ content: fileText, language: 'typescript' });
+  const editor = await vscode.window.showTextDocument(doc);
+  const end = doc.positionAt(fileText.length);
+  editor.selection = new vscode.Selection(end, end);
+  // Clicking the button happens with the chat sidebar focused.
+  await vscode.commands.executeCommand('vedara.chatView.focus');
+
+  const { ChatViewProvider } = extensionModule('chat/chatViewProvider.js');
+  const provider = new ChatViewProvider(vscode.Uri.file(__dirname));
+  await provider.handleInsertCode('export function b() {\n  return 2;\n}\n', 'code-1');
+  const inserted = 'export const a = 1;\n\nexport function b() {\n  return 2;\n}\n';
+  await waitFor(() => doc.getText() === inserted, 'code inserted after the last line');
+
+  // The rollback the command runs, on the history this provider wrote to (the test's copy of the
+  // modules keeps its own history, separate from the running extension's).
+  const { DiffHistoryManager } = extensionModule('diff/diffHistory.js');
+  const rollback = await DiffHistoryManager.getInstance().rollbackLastSession();
+  assert.ok(rollback.success, `rollback: ${rollback.error} (sessions left: ${DiffHistoryManager.getInstance().count})`);
+  await waitFor(() => doc.getText() === fileText, `rollback restored the file (now: ${JSON.stringify(doc.getText())})`);
+
+  await vscode.window.showTextDocument(doc);
+  await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+});
+
 test('organization policy: routes to an OpenAI-compatible team server and blocks other hosts', async () => {
   const policyFile = /** @type {string} */ (process.env.VEDARA_POLICY_FILE);
   const { getServerConfig } = extensionModule('server/serverConfig.js');

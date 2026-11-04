@@ -157,18 +157,39 @@ export async function applyMultiFilePatch(
     };
   }
 
+  const written = await writeFilesWithCheckpoint(
+    dryRun.files
+      .filter((f) => f.preview.appliedCount > 0)
+      .map((f) => ({ filePath: f.filePath, uri: f.uri, beforeContent: f.beforeContent, afterContent: f.preview.patchedContent })),
+    description
+  );
+  if (!written.success) {
+    return { success: false, filesModified: [], appliedHunks: 0, totalHunks: dryRun.totalHunks, checkpoints: written.checkpoints, error: written.error };
+  }
+  return {
+    success: true,
+    filesModified: written.filesModified,
+    appliedHunks: dryRun.appliedHunks,
+    totalHunks: dryRun.totalHunks,
+    checkpoints: written.checkpoints,
+  };
+}
+
+/**
+ * Writes new contents for whole files as one workspace edit. The touched git repositories are
+ * snapshotted first (shadow-git checkpoints), and the old contents are kept for one-click rollback.
+ */
+export async function writeFilesWithCheckpoint(
+  files: FilePatchSnapshot[],
+  description: string
+): Promise<{ success: boolean; filesModified: string[]; checkpoints: Checkpoint[]; error?: string }> {
   const checkpointOutcome = await CheckpointService.getInstance().checkpointBeforeEdit(
-    dryRun.files.filter((f) => f.preview.appliedCount > 0).map((f) => f.uri),
+    files.map((f) => f.uri),
     description
   );
 
   const workspaceEdit = new vscode.WorkspaceEdit();
-  const snapshots: FilePatchSnapshot[] = [];
-  const modifiedFilePaths: string[] = [];
-
-  for (const file of dryRun.files) {
-    if (file.preview.appliedCount === 0) continue;
-
+  for (const file of files) {
     let lineCount = 1;
     try {
       const doc = await vscode.workspace.openTextDocument(file.uri);
@@ -176,34 +197,13 @@ export async function applyMultiFilePatch(
     } catch {
       lineCount = 1;
     }
-
-    const fullRange = new vscode.Range(
-      new vscode.Position(0, 0),
-      new vscode.Position(lineCount, 0)
-    );
-
-    workspaceEdit.replace(file.uri, fullRange, file.preview.patchedContent);
-
-    snapshots.push({
-      filePath: file.filePath,
-      uri: file.uri,
-      beforeContent: file.beforeContent,
-      afterContent: file.preview.patchedContent,
-    });
-
-    modifiedFilePaths.push(file.filePath);
+    const fullRange = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(lineCount, 0));
+    workspaceEdit.replace(file.uri, fullRange, file.afterContent);
   }
 
   const applied = await vscode.workspace.applyEdit(workspaceEdit);
   if (!applied) {
-    return {
-      success: false,
-      filesModified: [],
-      appliedHunks: 0,
-      totalHunks: dryRun.totalHunks,
-      checkpoints: checkpointOutcome.checkpoints,
-      error: 'VS Code workspace edit failed to apply',
-    };
+    return { success: false, filesModified: [], checkpoints: checkpointOutcome.checkpoints, error: 'VS Code workspace edit failed to apply' };
   }
 
   // Record session in rollback history stack
@@ -211,16 +211,9 @@ export async function applyMultiFilePatch(
     id: `diff_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     timestamp: Date.now(),
     description,
-    files: snapshots,
+    files,
   };
-
   DiffHistoryManager.getInstance().pushSession(session);
 
-  return {
-    success: true,
-    filesModified: modifiedFilePaths,
-    appliedHunks: dryRun.appliedHunks,
-    totalHunks: dryRun.totalHunks,
-    checkpoints: checkpointOutcome.checkpoints,
-  };
+  return { success: true, filesModified: files.map((f) => f.filePath), checkpoints: checkpointOutcome.checkpoints };
 }

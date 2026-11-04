@@ -124,6 +124,7 @@ declare module 'vscode' {
     selections: Selection[];
     edit(callback: (editBuilder: TextEditorEdit) => void, options?: { undoStopBefore: boolean; undoStopAfter: boolean }): Thenable<boolean>;
     setDecorations(decorationType: TextEditorDecorationType, rangesOrOptions: readonly Range[] | readonly DecorationOptions[]): void;
+    revealRange(range: Range, revealType?: number): void;
   }
 
   export enum InlineCompletionTriggerKind {

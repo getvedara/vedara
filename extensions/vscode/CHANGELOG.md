@@ -11,11 +11,16 @@
 - Edit cards are labelled "Edit" instead of "Frugal Diff", and show the change as a diff (removed lines
   in red, added lines in green) instead of raw SEARCH/REPLACE markers. Long unchanged stretches fold
   to one line.
-- All edits to the open file in one answer are shown as one edit with the net change and one Apply.
-  Small models split a change over several edits (one opens a `try {`, another adds the `} catch`), or
-  write edits that build on each other; applied one at a time, those broke the code or failed. An edit
-  that doesn't match the current file says so instead of offering an Apply that fails.
-  "SEARCH/REPLACE blocks:" headings are dropped.
+- When small models split one change over several edits (one opens a `try {`, another adds the
+  `} catch`) or write edits that build on each other, the answer's edits are shown as one edit with the
+  net change and one Apply; applied one at a time, those broke the code or failed. Complete, separate
+  changes keep their own cards, so one can be applied without the rest. An edit that doesn't match the
+  current file says so instead of offering an Apply that fails. Headings like "SEARCH/REPLACE blocks for
+  the changes:" and stray `FILE:` lines are dropped.
+- Code blocks in answers have **Insert into File** and **Copy** buttons. Small models answer "add a
+  function…" with new code rather than an edit; Insert puts it at the cursor (on a blank line, after the
+  cursor's line, or in place of a selection), checkpointed first so Rollback Last Applied Diff undoes
+  it. Shell commands get Copy only.
 
 ## 0.1.0 (preview)
 

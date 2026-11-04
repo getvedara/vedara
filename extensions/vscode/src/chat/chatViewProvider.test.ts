@@ -45,9 +45,11 @@ vi.mock('vscode', () => {
         }),
       })),
       openTextDocument: vi.fn(),
+      asRelativePath: vi.fn((uri: { fsPath: string }) => uri.fsPath.replace('d:/projects/demo/', '')),
     },
     window: {
       activeTextEditor: undefined,
+      visibleTextEditors: [],
       showInformationMessage: vi.fn(),
       showWarningMessage: vi.fn(),
       showErrorMessage: vi.fn(),
@@ -96,6 +98,11 @@ vi.mock('../ollamaClient', () => ({
 }));
 
 vi.mock('../diff/patchOrchestrator', () => ({
+  writeFilesWithCheckpoint: vi.fn(async (files: { filePath: string }[]) => ({
+    success: true,
+    filesModified: files.map((f) => f.filePath),
+    checkpoints: [],
+  })),
   applyMultiFilePatch: vi.fn(async (diff: string) => {
     if (diff.includes('FAIL')) {
       return { success: false, appliedHunks: 0, totalHunks: 1, filesModified: [], error: 'Hunk mismatch' };
@@ -216,7 +223,7 @@ describe('VS Code Extension - ChatViewProvider', () => {
       expect(start).toBeGreaterThan(0);
       expect(end).toBeGreaterThan(start);
       const renderMarkdown = new Function(
-        `var diffBlockIdCounter = 0;\n${html.slice(start, end)}\nreturn renderMarkdown;`
+        `var diffBlockIdCounter = 0;\nvar codeBlockIdCounter = 0;\n${html.slice(start, end)}\nreturn renderMarkdown;`
       )() as (text: string) => string;
 
       const out = renderMarkdown(
@@ -266,6 +273,13 @@ describe('VS Code Extension - ChatViewProvider', () => {
       expect(marked).toContain('This edit doesn’t match the current file');
       expect(renderMarkdown(two).match(/class="diff-btn apply"/g)).toHaveLength(2);
 
+      // Code blocks in an answer get Insert into File and Copy; commands get Copy only; edit cards neither.
+      const code = renderMarkdown('Add this:\n```ts\nexport function b() {}\n```\nRun:\n```bash\nnpm test\n```');
+      expect(code.match(/class="diff-btn apply code-insert"/g)).toHaveLength(1);
+      expect(code.match(/class="diff-btn preview code-copy"/g)).toHaveLength(2);
+      expect(decodeURIComponent(code.match(/code-insert" data-id="[^"]*" data-code="([^"]*)"/)![1])).toBe('export function b() {}\n');
+      expect(edit).not.toContain('code-insert');
+
       // Long unchanged stretches fold to one line.
       const same = Array.from({ length: 12 }, (_, i) => `keep ${i};`).join('\n');
       const far = renderMarkdown(`<<<<<<< SEARCH\nold 1;\n${same}\nold 2;\n=======\nnew 1;\n${same}\nnew 2;\n>>>>>>> REPLACE`);
@@ -280,7 +294,7 @@ describe('VS Code Extension - ChatViewProvider', () => {
       const start = html.indexOf('function escapeHtml');
       const end = html.indexOf('function attachDiffListeners');
       const renderStreaming = new Function(
-        `var diffBlockIdCounter = 0;\n${html.slice(start, end)}\nreturn renderStreaming;`
+        `var diffBlockIdCounter = 0;\nvar codeBlockIdCounter = 0;\n${html.slice(start, end)}\nreturn renderStreaming;`
       )() as (text: string) => string;
 
       const fence = '```';
@@ -398,7 +412,7 @@ describe('VS Code Extension - ChatViewProvider', () => {
       mockStreamTokens = ['Here you go:\n```ts\nexport const sum = 1;\n```'];
       await provider.handleUserMessage('Rename add to sum');
       expect(postedMessages).toContainEqual(
-        expect.objectContaining({ type: 'systemMessage', text: expect.stringContaining('no SEARCH/REPLACE edit'), isError: false })
+        expect.objectContaining({ type: 'systemMessage', text: expect.stringContaining('click Insert into File'), isError: false })
       );
     });
 
@@ -442,6 +456,34 @@ describe('VS Code Extension - ChatViewProvider', () => {
       await provider.handleUserMessage('Rename add to sum');
       const done = postedMessages.find((m) => m.type === 'streamComplete');
       expect(done.unmatched).toEqual([1]);
+    });
+
+    it('inserts a code block into the open file at the cursor, through the checkpointed write', async () => {
+      const { writeFilesWithCheckpoint } = await import('../diff/patchOrchestrator');
+      const text = 'export const a = 1;\n';
+      const revealRange = vi.fn();
+      (vscode.window as any).activeTextEditor = {
+        document: {
+          uri: { fsPath: 'd:/projects/demo/src/math.ts' },
+          getText: () => text,
+          offsetAt: (p: { line: number; character: number }) => (p.line === 0 ? p.character : text.length),
+        },
+        selection: new (vscode as any).Selection(new (vscode as any).Position(1, 0), new (vscode as any).Position(1, 0)),
+        revealRange,
+      };
+      await provider.handleInsertCode('export function b() {\n  return 2;\n}\n', 'code-1');
+      expect(writeFilesWithCheckpoint).toHaveBeenCalledWith(
+        [expect.objectContaining({ filePath: 'src/math.ts', beforeContent: text, afterContent: 'export const a = 1;\n\nexport function b() {\n  return 2;\n}\n' })],
+        'Inserted via Vedara Chat'
+      );
+      expect(revealRange).toHaveBeenCalled();
+      expect(postedMessages).toContainEqual({ type: 'codeResult', blockId: 'code-1', success: true, message: 'Inserted 3 lines at line 3 of src/math.ts.' });
+    });
+
+    it('asks for a file when no editor is open to insert into', async () => {
+      (vscode.window as any).activeTextEditor = undefined;
+      await provider.handleInsertCode('x();', 'code-2');
+      expect(postedMessages).toContainEqual(expect.objectContaining({ type: 'codeResult', blockId: 'code-2', success: false }));
     });
 
     it('says so when the only edits change nothing', async () => {

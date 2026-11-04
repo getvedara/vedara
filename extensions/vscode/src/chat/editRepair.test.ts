@@ -74,6 +74,35 @@ describe('organizeEdits', () => {
     );
   });
 
+  it('keeps complete, separate changes as separate cards, so one can be applied without the other', () => {
+    const reply = [
+      'FILE: store.ts',
+      block('export function load(file: string) {', 'export function load(path: string) {'),
+      '',
+      block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;'),
+    ].join('\n');
+    expect(organizeEdits(reply, 'store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [] });
+  });
+
+  it('drops format headings and stray FILE lines (qwen2.5-coder:3b: one heading per edit)', () => {
+    const lead = 'SEARCH/REPLACE blocks for the changes:';
+    const reply = [
+      'Here is the change:',
+      '',
+      lead,
+      '',
+      'FILE: store.ts',
+      '',
+      block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;'),
+      '',
+      lead,
+      '',
+      'Here are the SEARCH/REPLACE edits to make:',
+    ].join('\n');
+    const r = organizeEdits(reply, 'store.ts', file);
+    expect(r.text).toBe(['Here is the change:', '', 'FILE: store.ts', '', block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;')].join('\n'));
+  });
+
   it('leaves a single edit as it is', () => {
     const reply = ['FILE: store.ts', block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;')].join('\n');
     expect(organizeEdits(reply, 'store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [] });

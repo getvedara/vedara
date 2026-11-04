@@ -153,8 +153,11 @@ export interface OrganizedEdits {
 const EDIT_START = /^\s*<{7}\s*SEARCH/;
 const EDIT_SEPARATOR = /^\s*={7}\s*$/;
 const EDIT_END = /^\s*>{7}\s*REPLACE/;
-/** "SEARCH/REPLACE blocks:" and the like: the prompt's jargon, written as a heading above the edits. */
-const FORMAT_LEAD_IN = /^\s*(?:here (?:are|is) (?:the )?)?search\s*\/\s*replace(?: blocks?)?\s*:?\s*$/i;
+/**
+ * "SEARCH/REPLACE blocks:", "SEARCH/REPLACE blocks for the changes:" and the like: the prompt's
+ * jargon, written as a heading above the edits (sometimes once per edit).
+ */
+const FORMAT_LEAD_IN = /^[^\n<>=]{0,60}\bsearch\s*\/\s*replace\b[^\n<>=]{0,60}$/i;
 
 interface EditBlock {
   /** First line of the block (its FILE line, when one comes straight before it). */
@@ -181,8 +184,11 @@ function findEditBlocks(lines: string[]): EditBlock[] {
     let end = sep + 1;
     while (end < lines.length && !EDIT_END.test(lines[end])) end++;
     if (end >= lines.length) break;
+    // The block's FILE line, if one comes before it with only blank lines in between.
+    let above = i - 1;
+    while (above >= 0 && !lines[above].trim()) above--;
     blocks.push({
-      start: i > 0 && /^\s*FILE:/i.test(lines[i - 1]) ? i - 1 : i,
+      start: above >= 0 && /^\s*FILE:/i.test(lines[above]) ? above : i,
       end,
       file,
       search: lines.slice(i + 1, sep).join('\n'),
@@ -193,6 +199,14 @@ function findEditBlocks(lines: string[]): EditBlock[] {
   return blocks;
 }
 
+/** Whether an edit leaves a bracket open or closes one it didn't open (`try {` without its `}`). */
+function changesBracketBalance(search: string, replace: string): boolean {
+  const count = (s: string, ch: string) => s.split(ch).length - 1;
+  return ['{}', '()', '[]'].some(
+    ([open, close]) => count(search, open) - count(search, close) !== count(replace, open) - count(replace, close)
+  );
+}
+
 function samePath(a: string, b: string): boolean {
   const norm = (p: string) => p.trim().replace(/\\/g, '/').replace(/^\.\//, '');
   const base = (p: string) => norm(p).split('/').pop();
@@ -200,13 +214,14 @@ function samePath(a: string, b: string): boolean {
 }
 
 /**
- * Checks each edit in a reply against the current file, and makes all edits that apply to it in
- * order into one edit showing the net change. Small models split one change into several edits
- * (one opens a `try {`, another adds the `} catch`), or write edits that build on each other (a
- * later edit changes lines that only an earlier one adds); applied one at a time, those leave
- * broken code or fail. Edits that match the file neither on their own nor after the others are
- * reported in `unmatched`, so the chat can say so instead of offering an Apply that fails. Edits
- * to other files, and edits that only apply when the others are left out, stay as they are.
+ * Checks each edit in a reply against the current file. Small models split one change into
+ * several edits (one opens a `try {`, another adds the `} catch`), or write edits that build on
+ * each other (a later edit changes lines that only an earlier one adds); applied one at a time,
+ * those leave broken code or fail. When an answer has such edits, all its edits that apply to the
+ * file in order become one edit showing the net change. Otherwise each edit keeps its own card, so
+ * one part of an answer can be applied without the rest. Edits that match the file neither on
+ * their own nor after the others are reported in `unmatched`, so the chat can say so instead of
+ * offering an Apply that fails. Edits to other files stay as they are.
  */
 export function organizeEdits(reply: string, file: string, fileText: string): OrganizedEdits {
   const lines = reply.split(/\r?\n/).filter((l) => !FORMAT_LEAD_IN.test(l));
@@ -228,8 +243,10 @@ export function organizeEdits(reply: string, file: string, fileText: string): Or
     return alone ? 'conflicts' : 'unmatched';
   });
 
+  const applying = blocks.filter((_, k) => status[k] === 'applies' || status[k] === 'chained');
+  const partial = applying.some((b) => changesBracketBalance(b.search, b.replace));
   let combined: string[] | undefined;
-  if (status.filter((s) => s === 'applies' || s === 'chained').length >= 2) {
+  if (applying.length >= 2 && (status.includes('chained') || partial)) {
     const hunk = minimalHunk(original.split('\n'), current.split('\n'));
     if (hunk) combined = [`FILE: ${file}`, '<<<<<<< SEARCH', ...hunk.search, '=======', ...hunk.replace, '>>>>>>> REPLACE'];
   }
@@ -257,7 +274,13 @@ export function organizeEdits(reply: string, file: string, fileText: string): Or
     index++;
   });
   out.push(...lines.slice(next));
-  return { text: tidy(out), merged, unmatched };
+  // A FILE line with no edit after it is left over from an edit that was combined into another.
+  const nextCode = (k: number) => {
+    while (k < out.length && !out[k].trim()) k++;
+    return out[k] ?? '';
+  };
+  const kept = out.filter((l, k) => !/^\s*FILE:/i.test(l) || EDIT_START.test(nextCode(k + 1)));
+  return { text: tidy(kept), merged, unmatched };
 }
 
 /**

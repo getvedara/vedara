@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { checkServer, loadedModels, streamChat, warmUp } from '../server/modelServer';
 import { getServerConfig } from '../server/serverConfig';
 import { pickChatModel, withTag } from '../models/modelRecommendation';
-import { applyMultiFilePatch, dryRunMultiFilePatch } from '../diff/patchOrchestrator';
+import { applyMultiFilePatch, dryRunMultiFilePatch, writeFilesWithCheckpoint } from '../diff/patchOrchestrator';
+import { planInsertion } from './insertCode';
 import {
   VedaraDiffContentProvider,
   createVirtualDiffUri,
@@ -93,6 +94,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'previewDiff':
           await this.handlePreviewDiff(data.diff);
+          break;
+        case 'insertCode':
+          await this.handleInsertCode(data.code, data.blockId);
+          break;
+        case 'copyCode':
+          await vscode.env.clipboard.writeText(data.code ?? '');
+          this._view?.webview.postMessage({ type: 'codeResult', blockId: data.blockId, success: true, message: 'Copied.' });
           break;
         case 'clearChat':
           this.clearChat();
@@ -285,9 +293,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           );
         } else if (!onlyNoOps && looksLikeEditRequest(userText) && !hasEditBlock(reply) && reply.includes('```')) {
           this.postSystemMessage(
-            "This answer has no SEARCH/REPLACE edit, so there's nothing to preview or apply. Ask again, " +
-              'for example "change it in the file", or select the code you want changed first. Small models ' +
-              'often miss the edit format; a larger chat model is more reliable.',
+            'This answer shows code but no edit to the file. To add it as new code, put the cursor where it ' +
+              'should go and click Insert into File. To change existing code, ask again, for example "change it ' +
+              'in the file", or select the code first. Small models often miss the edit format; a larger chat ' +
+              'model is more reliable.',
             false
           );
         }
@@ -400,6 +409,41 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
       }
     }
+  }
+
+  /**
+   * Inserts a code block from the chat into the open file, at the cursor (see planInsertion).
+   * Like Apply, it checkpoints first and can be undone with Rollback Last Applied Diff.
+   */
+  public async handleInsertCode(code: string, blockId?: string): Promise<void> {
+    const reply = (success: boolean, message: string) =>
+      this._view?.webview.postMessage({ type: 'codeResult', blockId, success, message });
+    // A sidebar view doesn't take over activeTextEditor, so this is the file the user was in.
+    const editor = vscode.window.activeTextEditor ?? vscode.window.visibleTextEditors?.[0];
+    if (!editor) {
+      reply(false, 'Open the file to insert into, put the cursor where the code should go, and try again.');
+      return;
+    }
+    const doc = editor.document;
+    const text = doc.getText();
+    const selection = editor.selection;
+    const plan = planInsertion(
+      text,
+      { start: doc.offsetAt(selection.start), end: doc.offsetAt(selection.end) },
+      code,
+      text.includes('\r\n') ? '\r\n' : '\n'
+    );
+    const filePath = vscode.workspace.asRelativePath(doc.uri);
+    const result = await writeFilesWithCheckpoint(
+      [{ filePath, uri: doc.uri, beforeContent: text, afterContent: plan.content }],
+      'Inserted via Vedara Chat'
+    );
+    if (!result.success) {
+      reply(false, result.error || 'Could not insert the code.');
+      return;
+    }
+    editor.revealRange(new vscode.Range(new vscode.Position(plan.line - 1, 0), new vscode.Position(plan.line - 1 + plan.lines, 0)));
+    reply(true, `Inserted ${plan.lines} line${plan.lines === 1 ? '' : 's'} at line ${plan.line} of ${filePath}.`);
   }
 
   /**
@@ -702,6 +746,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .diff-line.same { opacity: 0.6; }
     .diff-line.gap { opacity: 0.5; font-style: italic; }
     .diff-card.unmatched .diff-view { opacity: 0.55; }
+    .code-block { margin: 8px 0; }
+    .code-block pre { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+    .code-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 4px 4px;
+      background: rgba(0, 0, 0, 0.15);
+    }
+    .code-status { font-size: 11px; }
+    .code-status.success { color: #73c991; }
+    .code-status.error { color: #f85149; }
+
     .diff-note {
       padding: 6px 10px;
       font-size: 11px;
@@ -891,6 +952,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       var currentAssistantText = '';
       var isStreaming = false;
       var diffBlockIdCounter = 0;
+      var codeBlockIdCounter = 0;
 
       function scrollToBottom() {
         if (messagesContainer) {
@@ -925,7 +987,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         while ((match = diffRegex.exec(rawText)) !== null) {
           var cannotApply = !!unmatched && unmatched.indexOf(editIndex++) >= 0;
           var before = rawText.substring(lastIdx, match.index);
-          formatted += formatRegularText(trimNewlines(before, lastIdx > 0, true));
+          formatted += formatRegularText(trimNewlines(before, lastIdx > 0, true), true);
 
           var diffChunk = match[1];
           var diffId = 'diff-' + (++diffBlockIdCounter);
@@ -956,7 +1018,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         var remaining = rawText.substring(lastIdx);
-        formatted += formatRegularText(trimNewlines(remaining, lastIdx > 0, false));
+        formatted += formatRegularText(trimNewlines(remaining, lastIdx > 0, false), true);
         return formatted;
       }
 
@@ -1060,7 +1122,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         return html + '</div></div>';
       }
 
-      function formatRegularText(text) {
+      // Commands and output: Copy only, never Insert into File.
+      var NOT_FILE_CODE = ['bash', 'sh', 'shell', 'zsh', 'console', 'powershell', 'ps1', 'cmd', 'bat', 'text', 'txt', 'output'];
+
+      // withActions: code blocks in a finished answer get Insert into File and Copy buttons.
+      function formatRegularText(text, withActions) {
         if (!text) return '';
         var nl = String.fromCharCode(10);
         var tripleBacktick = String.fromCharCode(96, 96, 96);
@@ -1073,7 +1139,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             if (i % 2 === 1) {
               var firstLineIdx = chunk.indexOf(nl);
               var code = firstLineIdx !== -1 ? chunk.substring(firstLineIdx + 1) : chunk;
-              return '<pre><code>' + escapeHtml(code) + '</code></pre>';
+              var pre = '<pre><code>' + escapeHtml(code) + '</code></pre>';
+              if (!withActions || !code.trim()) return pre;
+              var lang = firstLineIdx !== -1 ? chunk.substring(0, firstLineIdx).trim().toLowerCase() : '';
+              var id = 'code-' + (++codeBlockIdCounter);
+              var data = encodeURIComponent(code);
+              var buttons = NOT_FILE_CODE.indexOf(lang) >= 0
+                ? ''
+                : '<button class="diff-btn apply code-insert" data-id="' + id + '" data-code="' + data + '">Insert into File</button>';
+              buttons += '<button class="diff-btn preview code-copy" data-id="' + id + '" data-code="' + data + '">Copy</button>';
+              return '<div class="code-block">' + pre + '<div class="code-actions">' + buttons +
+                '<span class="code-status" id="status-' + id + '"></span></div></div>';
             }
             return chunk
               .split(singleBacktick)
@@ -1159,7 +1235,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       function attachDiffListeners(container) {
         if (!container) return;
-        var previewButtons = container.querySelectorAll('.diff-btn.preview');
+        var previewButtons = container.querySelectorAll('.diff-card .diff-btn.preview');
         previewButtons.forEach(function (btn) {
           btn.onclick = function () {
             var diff = decodeURIComponent(btn.getAttribute('data-diff') || '');
@@ -1167,7 +1243,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           };
         });
 
-        var applyButtons = container.querySelectorAll('.diff-btn.apply');
+        var applyButtons = container.querySelectorAll('.diff-card .diff-btn.apply');
         applyButtons.forEach(function (btn) {
           btn.onclick = function () {
             var diff = decodeURIComponent(btn.getAttribute('data-diff') || '');
@@ -1175,6 +1251,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             btn.disabled = true;
             btn.innerText = 'Applying...';
             if (vscode) vscode.postMessage({ command: 'applyDiff', diff: diff, diffId: diffId });
+          };
+        });
+
+        var codeButtons = container.querySelectorAll('.code-insert, .code-copy');
+        codeButtons.forEach(function (btn) {
+          btn.onclick = function () {
+            var insert = btn.className.indexOf('code-insert') >= 0;
+            var code = decodeURIComponent(btn.getAttribute('data-code') || '');
+            if (insert) btn.disabled = true;
+            if (vscode) vscode.postMessage({ command: insert ? 'insertCode' : 'copyCode', code: code, blockId: btn.getAttribute('data-id') || '' });
           };
         });
       }
@@ -1321,6 +1407,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             sysBubble.innerText = msg.text || '';
             if (messagesContainer) messagesContainer.appendChild(sysBubble);
             scrollToBottom();
+            break;
+
+          case 'codeResult':
+            if (msg.blockId) {
+              var codeStatus = document.getElementById('status-' + msg.blockId);
+              if (codeStatus) {
+                codeStatus.className = 'code-status ' + (msg.success ? 'success' : 'error');
+                codeStatus.innerText = (msg.success ? '✓ ' : '✗ ') + msg.message;
+              }
+              var insertBtn = document.querySelector('button.code-insert[data-id="' + msg.blockId + '"]');
+              if (insertBtn) {
+                insertBtn.disabled = false;
+                if (msg.success && msg.message !== 'Copied.') insertBtn.innerText = 'Inserted';
+              }
+            }
             break;
 
           case 'diffResult':
