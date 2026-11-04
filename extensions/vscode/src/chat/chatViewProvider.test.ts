@@ -257,6 +257,22 @@ describe('VS Code Extension - ChatViewProvider', () => {
       expect(edit).not.toContain('&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH');
       expect(decodeURIComponent(edit.match(/data-diff="([^"]*)"/)![1])).toContain('<<<<<<< SEARCH');
       expect(renderMarkdown('<<<<<<< SEARCH\n<b>\n=======\n<i>\n>>>>>>> REPLACE')).toContain('&lt;i&gt;');
+
+      // An edit the host marked as not matching the file gets a note instead of buttons.
+      const two = 'FILE: a.ts\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\n\n<<<<<<< SEARCH\nc\n=======\nd\n>>>>>>> REPLACE';
+      const marked = (renderMarkdown as (t: string, u?: number[]) => string)(two, [1]);
+      expect(marked.match(/class="diff-btn apply"/g)).toHaveLength(1);
+      expect(marked).toContain('class="diff-card unmatched"');
+      expect(marked).toContain('This edit doesn’t match the current file');
+      expect(renderMarkdown(two).match(/class="diff-btn apply"/g)).toHaveLength(2);
+
+      // Long unchanged stretches fold to one line.
+      const same = Array.from({ length: 12 }, (_, i) => `keep ${i};`).join('\n');
+      const far = renderMarkdown(`<<<<<<< SEARCH\nold 1;\n${same}\nold 2;\n=======\nnew 1;\n${same}\nnew 2;\n>>>>>>> REPLACE`);
+      expect(far).toContain('⋯ 8 unchanged lines');
+      expect(far).toContain('keep 1;');
+      expect(far).not.toContain('keep 5;');
+      expect(far).toContain('keep 10;');
     });
 
     it('shows code and edits as one progress line each while an answer streams', () => {
@@ -407,6 +423,25 @@ describe('VS Code Extension - ChatViewProvider', () => {
       const done = postedMessages.find((m) => m.type === 'streamComplete');
       expect(done.text).toBe('FILE: src/math.ts\n<<<<<<< SEARCH\nadd\n=======\nsum\n>>>>>>> REPLACE');
       expect(postedMessages.some((m) => m.type === 'systemMessage')).toBe(false);
+    });
+
+    it('marks an edit that does not match the open file, so its card offers no Apply', async () => {
+      (vscode.window as any).activeTextEditor = {
+        document: {
+          fileName: 'd:/projects/demo/src/math.ts',
+          languageId: 'typescript',
+          lineCount: 2,
+          getText: () => 'export const add = 1;\nexport const two = 2;\n',
+        },
+        selection: new (vscode as any).Selection(new (vscode as any).Position(0, 0), new (vscode as any).Position(0, 0)),
+      };
+      mockStreamTokens = [
+        'FILE: src/math.ts\n<<<<<<< SEARCH\nexport const add = 1;\n=======\nexport const sum = 1;\n>>>>>>> REPLACE\n\n' +
+          '<<<<<<< SEARCH\nexport const three = 3;\n=======\nexport const four = 4;\n>>>>>>> REPLACE',
+      ];
+      await provider.handleUserMessage('Rename add to sum');
+      const done = postedMessages.find((m) => m.type === 'streamComplete');
+      expect(done.unmatched).toEqual([1]);
     });
 
     it('says so when the only edits change nothing', async () => {

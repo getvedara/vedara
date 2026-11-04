@@ -9,7 +9,13 @@
 - An edit whose SEARCH is the whole file is narrowed to the lines that changed, so the preview shows the
   change rather than the file.
 - Edit cards are labelled "Edit" instead of "Frugal Diff", and show the change as a diff (removed lines
-  in red, added lines in green) instead of raw SEARCH/REPLACE markers.
+  in red, added lines in green) instead of raw SEARCH/REPLACE markers. Long unchanged stretches fold
+  to one line.
+- All edits to the open file in one answer are shown as one edit with the net change and one Apply.
+  Small models split a change over several edits (one opens a `try {`, another adds the `} catch`), or
+  write edits that build on each other; applied one at a time, those broke the code or failed. An edit
+  that doesn't match the current file says so instead of offering an Apply that fails.
+  "SEARCH/REPLACE blocks:" headings are dropped.
 
 ## 0.1.0 (preview)
 

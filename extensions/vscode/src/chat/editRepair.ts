@@ -142,6 +142,124 @@ export function repairEditBlocks(reply: string, defaultFile?: string, fileText?:
   return editFromWholeFileAnswer(reply, defaultFile, fileText) ?? strict;
 }
 
+export interface OrganizedEdits {
+  text: string;
+  /** Edits folded into another edit's card. */
+  merged: number;
+  /** 0-based positions, among the edit blocks in `text`, of edits that don't match the file. */
+  unmatched: number[];
+}
+
+const EDIT_START = /^\s*<{7}\s*SEARCH/;
+const EDIT_SEPARATOR = /^\s*={7}\s*$/;
+const EDIT_END = /^\s*>{7}\s*REPLACE/;
+/** "SEARCH/REPLACE blocks:" and the like: the prompt's jargon, written as a heading above the edits. */
+const FORMAT_LEAD_IN = /^\s*(?:here (?:are|is) (?:the )?)?search\s*\/\s*replace(?: blocks?)?\s*:?\s*$/i;
+
+interface EditBlock {
+  /** First line of the block (its FILE line, when one comes straight before it). */
+  start: number;
+  /** The `>>>>>>> REPLACE` line. */
+  end: number;
+  file?: string;
+  search: string;
+  replace: string;
+}
+
+function findEditBlocks(lines: string[]): EditBlock[] {
+  const blocks: EditBlock[] = [];
+  let file: string | undefined;
+  for (let i = 0; i < lines.length; i++) {
+    const named = /^\s*FILE:\s*(.+?)\s*$/i.exec(lines[i]);
+    if (named) {
+      file = named[1];
+      continue;
+    }
+    if (!EDIT_START.test(lines[i])) continue;
+    let sep = i + 1;
+    while (sep < lines.length && !EDIT_SEPARATOR.test(lines[sep])) sep++;
+    let end = sep + 1;
+    while (end < lines.length && !EDIT_END.test(lines[end])) end++;
+    if (end >= lines.length) break;
+    blocks.push({
+      start: i > 0 && /^\s*FILE:/i.test(lines[i - 1]) ? i - 1 : i,
+      end,
+      file,
+      search: lines.slice(i + 1, sep).join('\n'),
+      replace: lines.slice(sep + 1, end).join('\n'),
+    });
+    i = end;
+  }
+  return blocks;
+}
+
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => p.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  const base = (p: string) => norm(p).split('/').pop();
+  return norm(a) === norm(b) || base(a) === base(b);
+}
+
+/**
+ * Checks each edit in a reply against the current file, and makes all edits that apply to it in
+ * order into one edit showing the net change. Small models split one change into several edits
+ * (one opens a `try {`, another adds the `} catch`), or write edits that build on each other (a
+ * later edit changes lines that only an earlier one adds); applied one at a time, those leave
+ * broken code or fail. Edits that match the file neither on their own nor after the others are
+ * reported in `unmatched`, so the chat can say so instead of offering an Apply that fails. Edits
+ * to other files, and edits that only apply when the others are left out, stay as they are.
+ */
+export function organizeEdits(reply: string, file: string, fileText: string): OrganizedEdits {
+  const lines = reply.split(/\r?\n/).filter((l) => !FORMAT_LEAD_IN.test(l));
+  const blocks = findEditBlocks(lines);
+  const tidy = (out: string[]) => out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (blocks.length === 0) return { text: tidy(lines), merged: 0, unmatched: [] };
+
+  const original = fileText.replace(/\r\n/g, '\n');
+  let current = original;
+  const status = blocks.map((b) => {
+    if (b.file && b.file !== 'untitled' && !samePath(b.file, file)) return 'other';
+    const hunk = { id: 'check', search: b.search, replace: b.replace };
+    const alone = applyHunks(original, [hunk]).allApplied;
+    const inOrder = applyHunks(current, [hunk]);
+    if (inOrder.allApplied) {
+      current = inOrder.modifiedContent;
+      return alone ? 'applies' : 'chained';
+    }
+    return alone ? 'conflicts' : 'unmatched';
+  });
+
+  let combined: string[] | undefined;
+  if (status.filter((s) => s === 'applies' || s === 'chained').length >= 2) {
+    const hunk = minimalHunk(original.split('\n'), current.split('\n'));
+    if (hunk) combined = [`FILE: ${file}`, '<<<<<<< SEARCH', ...hunk.search, '=======', ...hunk.replace, '>>>>>>> REPLACE'];
+  }
+
+  const out: string[] = [];
+  const unmatched: number[] = [];
+  let merged = 0;
+  let placed = false;
+  let index = 0;
+  let next = 0;
+  blocks.forEach((b, k) => {
+    out.push(...lines.slice(next, b.start));
+    next = b.end + 1;
+    if (combined && (status[k] === 'applies' || status[k] === 'chained')) {
+      if (placed) {
+        merged++;
+        return;
+      }
+      out.push(...combined);
+      placed = true;
+    } else {
+      if (status[k] === 'unmatched') unmatched.push(index);
+      out.push(...lines.slice(b.start, b.end + 1));
+    }
+    index++;
+  });
+  out.push(...lines.slice(next));
+  return { text: tidy(out), merged, unmatched };
+}
+
 /**
  * Small models often type out the whole current file before writing the edit. Once the reply has
  * an edit, a code block that is just a copy of the file adds nothing but length, so it is dropped.

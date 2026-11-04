@@ -1,10 +1,90 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('vscode', () => ({}));
-import { repairEditBlocks } from './editRepair';
+import { organizeEdits, repairEditBlocks } from './editRepair';
+import { applyHunks, parseFrugalDiff } from '../diff/frugalDiffEngine';
 import { hasEditBlock } from './promptBuilder';
 
 const lines = (...l: string[]) => l.join('\n');
+
+describe('organizeEdits', () => {
+  const file = lines('export function load(file: string) {', '  const text = read(file);', '  return JSON.parse(text);', '}', '');
+  const block = (search: string, replace: string) => lines('<<<<<<< SEARCH', search, '=======', replace, '>>>>>>> REPLACE');
+
+  it('merges edits that build on each other into one edit, and marks one that matches nothing (qwen2.5-coder:3b)', () => {
+    const first = block(
+      '  const text = read(file);',
+      lines('  let text;', '  try {', '    text = read(file);', '  } catch (error) {', "    console.error('failed');", '  }')
+    );
+    // Changes a line that only exists after the first edit.
+    const second = block("    console.error('failed');", lines("    console.error('failed', error);", '    throw error;'));
+    const stray = block("  log('nope');", "  log('yes');");
+    const reply = ['To add error handling:', '', 'SEARCH/REPLACE blocks:', '', 'FILE: store.ts', first, '', second, '', stray, '', 'Done.'].join('\n');
+
+    const r = organizeEdits(reply, 'store.ts', file);
+    expect(r.merged).toBe(1);
+    expect(r.unmatched).toEqual([1]);
+    expect(r.text).not.toMatch(/SEARCH\/REPLACE blocks/);
+    expect(r.text.match(/<<<<<<< SEARCH/g)).toHaveLength(2);
+    expect(r.text.startsWith('To add error handling:\n\nFILE: store.ts\n<<<<<<< SEARCH')).toBe(true);
+    expect(r.text.endsWith('Done.')).toBe(true);
+
+    // The merged edit applies to the real file and gives the result of both edits in order.
+    const [merged] = parseFrugalDiff(r.text)[0].hunks;
+    expect(applyHunks(file, [merged]).modifiedContent).toBe(
+      lines(
+        'export function load(file: string) {',
+        '  let text;',
+        '  try {',
+        '    text = read(file);',
+        '  } catch (error) {',
+        "    console.error('failed', error);",
+        '    throw error;',
+        '  }',
+        '  return JSON.parse(text);',
+        '}',
+        ''
+      )
+    );
+  });
+
+  it('makes one change split over several edits into one edit (qwen2.5-coder:3b: try { in one, } catch in another)', () => {
+    const reply = [
+      'FILE: store.ts',
+      block('  const text = read(file);', lines('  try {', '    const text = read(file);')),
+      '',
+      block('  return JSON.parse(text);', lines('    return JSON.parse(text);', '  } catch (error) {', '    return [];', '  }')),
+    ].join('\n');
+    const r = organizeEdits(reply, 'store.ts', file);
+    expect(r).toMatchObject({ merged: 1, unmatched: [] });
+    const hunks = parseFrugalDiff(r.text)[0].hunks;
+    expect(hunks).toHaveLength(1);
+    expect(applyHunks(file, hunks).modifiedContent).toBe(
+      lines(
+        'export function load(file: string) {',
+        '  try {',
+        '    const text = read(file);',
+        '    return JSON.parse(text);',
+        '  } catch (error) {',
+        '    return [];',
+        '  }',
+        '}',
+        ''
+      )
+    );
+  });
+
+  it('leaves a single edit as it is', () => {
+    const reply = ['FILE: store.ts', block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;')].join('\n');
+    expect(organizeEdits(reply, 'store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [] });
+  });
+
+  it('leaves edits to other files alone', () => {
+    const reply = ['FILE: other.ts', block('const a = 1;', 'const a = 2;')].join('\n');
+    expect(organizeEdits(reply, 'src/store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [] });
+    expect(organizeEdits(reply, 'other.ts', file).unmatched).toEqual([0]);
+  });
+});
 
 describe('repairEditBlocks', () => {
   it('drops a copy of the whole file typed out before the edit (qwen2.5-coder:3b, demo file)', () => {

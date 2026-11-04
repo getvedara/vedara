@@ -19,7 +19,7 @@ import {
   looksLikeEditRequest,
   refersToCode,
 } from './promptBuilder';
-import { repairEditBlocks } from './editRepair';
+import { organizeEdits, repairEditBlocks } from './editRepair';
 
 /** How long Ollama keeps the chat model loaded after the last message. */
 export const CHAT_KEEP_ALIVE = '30m';
@@ -248,6 +248,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const prose = /:\s*$/.test(reply) ? '' : reply;
           reply = `${prose ? `${prose}\n\n` : ''}No changes suggested: the edits in this answer would leave the code as it is.`;
         }
+        // Edits that build on each other become one; edits that don't match the file are marked.
+        let unmatched: number[] = [];
+        if (editorContext?.fileText !== undefined && hasEditBlock(reply)) {
+          const organized = organizeEdits(
+            reply,
+            editorContext.relativePath || editorContext.filePath,
+            editorContext.fileText
+          );
+          reply = organized.text;
+          unmatched = organized.unmatched;
+        }
         this._history.push(
           { role: 'user', content: historyText?.trim() || userText },
           { role: 'assistant', content: compactAssistantReply(reply) }
@@ -263,6 +274,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             type: 'streamComplete',
             footer: `${model}${speed}`,
             ...(reply !== accumulatedResponse ? { text: reply } : {}),
+            ...(unmatched.length ? { unmatched } : {}),
           });
         }
         if (stats.doneReason === 'length') {
@@ -688,6 +700,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       opacity: 0.8;
     }
     .diff-line.same { opacity: 0.6; }
+    .diff-line.gap { opacity: 0.5; font-style: italic; }
+    .diff-card.unmatched .diff-view { opacity: 0.55; }
+    .diff-note {
+      padding: 6px 10px;
+      font-size: 11px;
+      color: var(--vscode-editorWarning-foreground, #cca700);
+      border-top: 1px solid var(--border);
+    }
     .diff-line.del {
       background: var(--vscode-diffEditor-removedLineBackground, rgba(248, 81, 73, 0.18));
     }
@@ -887,7 +907,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           .replace(/'/g, '&#039;');
       }
 
-      function renderMarkdown(rawText) {
+      // unmatched: positions (0-based, in order) of edits that don't match the current file; their
+      // cards say so instead of offering Preview and Apply.
+      function renderMarkdown(rawText, unmatched) {
         var nl = String.fromCharCode(10);
         var tb = String.fromCharCode(96, 96, 96);
         // This script sits in a TypeScript template literal, which halves every backslash: write
@@ -898,8 +920,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         var formatted = '';
         var lastIdx = 0;
         var match;
+        var editIndex = 0;
 
         while ((match = diffRegex.exec(rawText)) !== null) {
+          var cannotApply = !!unmatched && unmatched.indexOf(editIndex++) >= 0;
           var before = rawText.substring(lastIdx, match.index);
           formatted += formatRegularText(trimNewlines(before, lastIdx > 0, true));
 
@@ -909,12 +933,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           var fileMatch = diffChunk.match(fileRegex);
           var targetFile = fileMatch ? fileMatch[1].trim() : 'Active Document';
 
-          formatted += '<div class="diff-card" id="' + diffId + '">';
+          formatted += '<div class="diff-card' + (cannotApply ? ' unmatched' : '') + '" id="' + diffId + '">';
           formatted += '  <div class="diff-card-header">';
           formatted += '    <span>📄 ' + escapeHtml(targetFile) + '</span>';
-          formatted += '    <span>Edit</span>';
+          formatted += '    <span>' + (cannotApply ? 'Can’t apply' : 'Edit') + '</span>';
           formatted += '  </div>';
           formatted += renderEditDiff(diffChunk);
+          if (cannotApply) {
+            formatted += '  <div class="diff-note">This edit doesn’t match the current file, so it can’t be applied.</div>';
+            formatted += '</div>';
+            lastIdx = match.index + match[0].length;
+            continue;
+          }
           formatted += '  <div class="diff-actions">';
           formatted += '    <button class="diff-btn preview" data-diff="' + encodeURIComponent(diffChunk) + '">👁️ Preview Diff</button>';
           formatted += '    <button class="diff-btn apply" data-id="' + diffId + '" data-diff="' + encodeURIComponent(diffChunk) + '">⚡ Apply Diff</button>';
@@ -1000,9 +1030,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         while (ops.length && ops[0][0] === 'same' && !ops[0][1].trim()) ops.shift();
         while (ops.length && ops[ops.length - 1][0] === 'same' && !ops[ops.length - 1][1].trim()) ops.pop();
 
+        // Long unchanged stretches (an edit merged from changes far apart) fold to one line.
+        var shown = [];
+        for (var r = 0; r < ops.length; ) {
+          var run = r;
+          while (run < ops.length && ops[run][0] === 'same') run++;
+          if (run - r > 6) {
+            shown.push(ops[r], ops[r + 1], ['gap', String(run - r - 4)], ops[run - 2], ops[run - 1]);
+            r = run;
+          } else if (run > r) {
+            while (r < run) shown.push(ops[r++]);
+          } else {
+            shown.push(ops[r++]);
+          }
+        }
+        ops = shown;
+
         var sign = { same: ' ', del: '-', add: '+' };
         var html = '<div class="diff-view"><div class="diff-lines">';
         for (var k = 0; k < ops.length; k++) {
+          if (ops[k][0] === 'gap') {
+            html += '<div class="diff-line gap"><span class="diff-sign"> </span>⋯ ' + ops[k][1] + ' unchanged lines</div>';
+            continue;
+          }
           html +=
             '<div class="diff-line ' + ops[k][0] + '"><span class="diff-sign">' + sign[ops[k][0]] + '</span>' +
             (escapeHtml(ops[k][1]) || ' ') + '</div>';
@@ -1252,7 +1302,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             if (stopBtn) stopBtn.style.display = 'none';
             if (currentAssistantBubble) {
               if (typeof msg.text === 'string') currentAssistantText = msg.text;
-              currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantText);
+              currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantText, msg.unmatched);
               if (msg.footer) {
                 var footer = document.createElement('div');
                 footer.className = 'msg-footer';
