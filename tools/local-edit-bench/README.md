@@ -34,8 +34,15 @@ The report breaks this down by model × format, by long files (≥ 300 lines), a
 | `search-replace` | `FILE: <path>` + `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` blocks | Vedara's frugal-diff parser |
 | `search-replace-hinted` | same, with `(line N)` hints; the file is shown with a line-number gutter | Vedara's frugal-diff parser |
 | `udiff` | a unified diff (`--- a/` / `+++ b/` / `@@`) | the minimal applier in [src/formats/unifiedDiff.ts](src/formats/unifiedDiff.ts) |
+| `search-replace-json` | `{"edits": [{"file", "search", "replace"}]}`, held to a JSON schema by the server (Ollama `format`) | Vedara's frugal-diff engine |
+| `anchored-json` | `{"edits": [{"file", "first_line", "last_line", "replace"}]}`; the anchors are an enum of the file's own `N \| text` lines, so the model cannot misquote code | [src/formats/structured.ts](src/formats/structured.ts) |
 
-The exact prompts are in [src/formats/index.ts](src/formats/index.ts). They are versioned
+The two JSON formats test constrained decoding. On the 2026-11-04 run
+([results](results/2026-11-04-rtx3050-laptop-constrained.md)), `anchored-json` applied 92.4% of edits
+but only 6.8% passed, against 32.6% for plain `search-replace`: under the schema the 1.5B model wrote
+short, one-line edits (median 83 completion tokens against 196) and stopped before covering the change.
+
+The exact prompts are in [src/formats/index.ts](src/formats/index.ts) and [src/formats/structured.ts](src/formats/structured.ts). They are versioned
 (`PROMPT_VERSION`), and that version is part of every result's cache key.
 
 The unified-diff applier is deliberately small and its leniency is fixed. It ignores the counts in `@@`
@@ -96,7 +103,7 @@ This writes `results/<date>-<host-label>.md`, a `.json` with the summary and per
 
 | Option | Default | |
 |---|---|---|
-| `--formats` | all four | e.g. `--formats whole,udiff` |
+| `--formats` | all six | e.g. `--formats whole,udiff` |
 | `--tasks` | all | id substrings or a language: `--tasks rust,ts-long` |
 | `--num-ctx` | 32768 | sent explicitly as `options.num_ctx`; results that fill the window are flagged |
 | `--seed` | 42 | temperature is always 0 |

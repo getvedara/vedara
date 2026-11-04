@@ -86,6 +86,8 @@ export interface ChatOptions {
   seed: number;
   temperature: number;
   timeoutMs: number;
+  /** JSON schema the reply must follow (Ollama structured outputs). */
+  format?: object;
 }
 
 export interface ChatResult {
@@ -116,6 +118,7 @@ export async function ollamaChat(endpoint: string, model: string, messages: Chat
         model,
         messages,
         stream: true,
+        ...(opts.format ? { format: opts.format } : {}),
         options: {
           temperature: opts.temperature,
           seed: opts.seed,

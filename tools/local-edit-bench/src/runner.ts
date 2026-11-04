@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { runCheck, type CheckOptions } from './checks.ts';
 import { applyResponse, PROMPT_VERSION, referenceResponse, retryPrompt, systemPrompt, userPrompt } from './formats/index.ts';
+import { isStructured, responseSchema } from './formats/structured.ts';
 import { assertEndpointAllowed, getModelInfo, getOllamaVersion, isLoopbackUrl, ollamaChat, type ChatResult } from './ollama.ts';
 import { captureProvenance, gitSha } from './provenance.ts';
 import { readJsonl } from './report.ts';
@@ -222,6 +223,7 @@ export async function runBench(opts: RunOptions): Promise<RunOutcome> {
             seed: opts.seed,
             temperature: TEMPERATURE,
             timeoutMs: opts.timeoutMs,
+            format: isStructured(ctx.format) ? responseSchema(ctx.task, ctx.format) : undefined,
           });
 
     let warmedUp = !!opts.dryRun;

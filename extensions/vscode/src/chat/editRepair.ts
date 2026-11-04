@@ -137,8 +137,21 @@ function cleanFileLine(line: string): string {
 
 export function repairEditBlocks(reply: string, defaultFile?: string, fileText?: string): RepairedReply {
   const strict = repairLooseBlocks(reply, defaultFile, fileText);
+  if (strict.edits > 0 && fileText !== undefined) return { ...strict, text: dropFileEchoes(strict.text, fileText) };
   if (strict.edits + strict.noOps > 0 || fileText === undefined) return strict;
   return editFromWholeFileAnswer(reply, defaultFile, fileText) ?? strict;
+}
+
+/**
+ * Small models often type out the whole current file before writing the edit. Once the reply has
+ * an edit, a code block that is just a copy of the file adds nothing but length, so it is dropped.
+ */
+export function dropFileEchoes(reply: string, fileText: string): string {
+  const original = fileText.split(/\r?\n/);
+  const out = reply.replace(FENCED_BLOCK, (block: string, _fence: string, body: string) =>
+    !/<{7}/.test(body) && wholeFileScore(body.split(/\r?\n/), original) !== undefined ? '' : block
+  );
+  return out === reply ? reply : out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 const FENCED_BLOCK = /^[ \t]*(`{3,})[\w+#.-]*[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*\1[ \t]*$/gm;
@@ -317,10 +330,15 @@ function repairLooseBlocks(reply: string, defaultFile?: string, fileText?: strin
       replaceLines = replace.lines;
     }
 
-    // An empty SEARCH with the whole file as REPLACE: edit just the lines that changed.
-    if (fileText !== undefined && !searchLines.some((l) => l.trim())) {
+    // An empty SEARCH with the whole file as REPLACE, or the whole file as SEARCH (qwen2.5-coder:3b
+    // writes both): edit just the lines that changed, so the preview shows the change, not the file.
+    if (fileText !== undefined) {
       const original = fileText.split(/\r?\n/);
-      if (wholeFileScore(replaceLines, original) !== undefined) {
+      const emptySearch = !searchLines.some((l) => l.trim());
+      if (
+        (emptySearch && wholeFileScore(replaceLines, original) !== undefined) ||
+        (!emptySearch && sameCode(searchLines, original))
+      ) {
         const hunk = minimalHunk(original, replaceLines);
         searchLines = hunk ? hunk.search : [];
         replaceLines = hunk ? hunk.replace : [];

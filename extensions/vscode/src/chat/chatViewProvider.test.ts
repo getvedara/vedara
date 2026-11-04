@@ -229,6 +229,32 @@ describe('VS Code Extension - ChatViewProvider', () => {
       expect(renderMarkdown('Just text with `code`.')).not.toContain('diff-card');
     });
 
+    it('shows code and edits as one progress line each while an answer streams', () => {
+      const html = provider.getHtmlForWebview(mockWebview);
+      const start = html.indexOf('function escapeHtml');
+      const end = html.indexOf('function attachDiffListeners');
+      const renderStreaming = new Function(
+        `var diffBlockIdCounter = 0;\n${html.slice(start, end)}\nreturn renderStreaming;`
+      )() as (text: string) => string;
+
+      const fence = '```';
+      const file = Array.from({ length: 24 }, (_, i) => `line ${i + 1};`).join('\n');
+      const done = renderStreaming(
+        `Here is the file:\n\n${fence}ts\n${file}\n${fence}\n\nFILE: src/a.ts\n<<<<<<< SEARCH\nline 1;\n=======\nline one;\n>>>>>>> REPLACE\n\nDone.`
+      );
+      expect(done).toContain('Here is the file:');
+      expect(done).toContain('Code · 24 lines');
+      expect(done).toContain('Edit to src/a.ts · 2 lines');
+      expect(done).toContain('Done.');
+      expect(done).not.toContain('line 7;');
+      expect(done).not.toContain('FILE:');
+
+      const open = renderStreaming('FILE: src/a.ts\n<<<<<<< SEARCH\nline 1;\nline 2;');
+      expect(open).toContain('Writing edit to src/a.ts… 2 lines');
+      expect(renderStreaming(`Sure.\n${fence}python\nprint(1)`)).toContain('Writing code… 1 line');
+      expect(renderStreaming('Just text with `code`.')).toContain('<code>code</code>');
+    });
+
     it('updates model status via postMessage', async () => {
       provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
       await provider.updateModelStatus();

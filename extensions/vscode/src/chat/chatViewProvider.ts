@@ -571,6 +571,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       margin-right: 4px;
     }
 
+    .stream-chip {
+      display: inline-block;
+      margin: 6px 0;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--card-bg);
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+    }
+    .stream-chip.open { font-style: italic; }
+
     .msg-footer {
       margin-top: 6px;
       font-size: 11px;
@@ -867,7 +879,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           formatted += '<div class="diff-card" id="' + diffId + '">';
           formatted += '  <div class="diff-card-header">';
           formatted += '    <span>📄 ' + escapeHtml(targetFile) + '</span>';
-          formatted += '    <span>Frugal Diff</span>';
+          formatted += '    <span>Edit</span>';
           formatted += '  </div>';
           formatted += '  <pre><code>' + escapeHtml(diffChunk) + '</code></pre>';
           formatted += '  <div class="diff-actions">';
@@ -911,6 +923,75 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
               .join('');
           })
           .join('');
+      }
+
+      // While an answer streams, code blocks and edits show as one progress line each instead of
+      // scrolling past: small models often type out the whole file before the edit. The full answer
+      // is rendered by renderMarkdown when it completes.
+      function renderStreaming(rawText) {
+        var nl = String.fromCharCode(10);
+        var tb = String.fromCharCode(96, 96, 96);
+        var lines = rawText.split(nl);
+        var html = '';
+        var prose = [];
+        var block = null; // { fenced, edit, file, lines }
+
+        function flushProse() {
+          if (prose.length) html += formatRegularText(prose.join(nl));
+          prose = [];
+        }
+        function chip(b, open) {
+          var what = b.edit ? 'Edit' + (b.file ? ' to ' + b.file : '') : 'Code';
+          var count = b.lines + (b.lines === 1 ? ' line' : ' lines');
+          var text = open ? (b.edit ? 'Writing edit' + (b.file ? ' to ' + b.file : '') : 'Writing code') + '… ' + count : what + ' · ' + count;
+          return '<div class="stream-chip' + (open ? ' open' : '') + '">' + escapeHtml(text) + '</div>';
+        }
+        function takeFileLine() {
+          // A "FILE: path" line just before an edit names the edit's file.
+          for (var k = prose.length - 1; k >= 0; k--) {
+            var t = prose[k].trim();
+            if (!t) continue;
+            if (t.indexOf('FILE:') === 0) {
+              prose.splice(k, 1);
+              return t.slice(5).trim();
+            }
+            return '';
+          }
+          return '';
+        }
+
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          var t = line.trim();
+          if (!block) {
+            if (t.indexOf(tb) === 0) {
+              var file = takeFileLine();
+              flushProse();
+              block = { fenced: true, edit: false, file: file, lines: 0 };
+            } else if (t.indexOf('<<<<<<<') === 0) {
+              var editFile = takeFileLine();
+              flushProse();
+              block = { fenced: false, edit: true, file: editFile, lines: 0 };
+            } else {
+              prose.push(line);
+            }
+            continue;
+          }
+          if (block.fenced && t.indexOf(tb) === 0) {
+            html += chip(block, false);
+            block = null;
+          } else if (!block.fenced && t.indexOf('>>>>>>>') === 0) {
+            html += chip(block, false);
+            block = null;
+          } else {
+            if (t.indexOf('<<<<<<<') === 0) block.edit = true;
+            else if (t.indexOf('FILE:') === 0 && !block.file) block.file = t.slice(5).trim();
+            else if (t.indexOf('=======') !== 0 && t.indexOf('>>>>>>>') !== 0) block.lines++;
+          }
+        }
+        flushProse();
+        if (block) html += chip(block, true);
+        return html;
       }
 
       function attachDiffListeners(container) {
@@ -1047,8 +1128,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           case 'tokenDelta':
             if (!currentAssistantBubble) return;
             currentAssistantText += msg.delta || '';
-            currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantText) + '<span class="cursor"></span>';
-            attachDiffListeners(currentAssistantBubble);
+            currentAssistantBubble.innerHTML = renderStreaming(currentAssistantText) + '<span class="cursor"></span>';
             scrollToBottom();
             break;
 

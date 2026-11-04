@@ -1,9 +1,10 @@
 import { applyHunks, parseFrugalDiff } from '../../../../extensions/vscode/src/diff/frugalDiffEngine.ts';
 import { hunkNew, hunkOld, renderUnifiedDiff, uniqueHunks } from '../diff.ts';
 import type { ApplyResult, FormatId, Task } from '../types.ts';
+import { anchoredFileView, applyStructured, referenceStructured, STRUCTURED_PROMPTS } from './structured.ts';
 import { applyUnifiedDiff, parseUnifiedDiff, stripPathPrefix, UdiffParseError, type UdiffFilePatch } from './unifiedDiff.ts';
 
-export const ALL_FORMATS: FormatId[] = ['whole', 'search-replace', 'search-replace-hinted', 'udiff'];
+export const ALL_FORMATS: FormatId[] = ['whole', 'search-replace', 'search-replace-hinted', 'udiff', 'search-replace-json', 'anchored-json'];
 
 /** Bump when any prompt text changes; part of the result cache key. */
 export const PROMPT_VERSION = 1;
@@ -91,6 +92,14 @@ Example:
  def greet(name):
 -    return "Hello " + name
 +    return "Hello, " + name + "!"`,
+
+  'search-replace-json': `${COMMON_RULES}
+
+${STRUCTURED_PROMPTS['search-replace-json']}`,
+
+  'anchored-json': `${COMMON_RULES}
+
+${STRUCTURED_PROMPTS['anchored-json']}`,
 };
 
 export function systemPrompt(format: FormatId): string {
@@ -108,7 +117,12 @@ export function userPrompt(task: Task, format: FormatId): string {
   const fence = LANG_FENCE[task.language];
   const files = task.files
     .map((f) => {
-      const body = format === 'search-replace-hinted' ? withGutter(task.before[f]) : task.before[f].replace(/\n$/, '');
+      const body =
+        format === 'search-replace-hinted'
+          ? withGutter(task.before[f])
+          : format === 'anchored-json'
+            ? anchoredFileView(task.before[f])
+            : task.before[f].replace(/\n$/, '');
       return `FILE: ${f}\n\`\`\`${fence}\n${body}\n\`\`\``;
     })
     .join('\n\n');
@@ -213,6 +227,9 @@ export function applyResponse(task: Task, format: FormatId, response: string): A
         return applySearchReplace(task, response);
       case 'udiff':
         return applyUdiff(task, response);
+      case 'search-replace-json':
+      case 'anchored-json':
+        return applyStructured(task, format, response, (raw) => resolvePath(task, raw));
     }
   } catch (err) {
     return { ok: false, error: `applier threw: ${(err as Error).message}` };
@@ -239,5 +256,8 @@ export function referenceResponse(task: Task, format: FormatId): string {
         .join('\n\n');
     case 'udiff':
       return changed.map((f) => renderUnifiedDiff(f, task.before[f], task.after[f])).join('');
+    case 'search-replace-json':
+    case 'anchored-json':
+      return referenceStructured(task, format);
   }
 }

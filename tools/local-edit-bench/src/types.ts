@@ -39,7 +39,7 @@ export interface Task extends TaskMeta {
   lines: number;
 }
 
-export type FormatId = 'whole' | 'search-replace' | 'search-replace-hinted' | 'udiff';
+export type FormatId = 'whole' | 'search-replace' | 'search-replace-hinted' | 'udiff' | 'search-replace-json' | 'anchored-json';
 
 export interface ApplyResult {
   ok: boolean;

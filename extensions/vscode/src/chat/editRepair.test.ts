@@ -7,6 +7,58 @@ import { hasEditBlock } from './promptBuilder';
 const lines = (...l: string[]) => l.join('\n');
 
 describe('repairEditBlocks', () => {
+  it('drops a copy of the whole file typed out before the edit (qwen2.5-coder:3b, demo file)', () => {
+    const file = lines(
+      "import { readFileSync } from 'fs';",
+      '',
+      'export function loadUsers(file: string) {',
+      "  const text = readFileSync(file, 'utf8');",
+      '  return JSON.parse(text);',
+      '}',
+      '',
+      'export function count(users: string[]) {',
+      '  return users.length;',
+      '}',
+      ''
+    );
+    const edit = lines(
+      'FILE: userStore.ts',
+      '<<<<<<< SEARCH',
+      "  const text = readFileSync(file, 'utf8');",
+      '  return JSON.parse(text);',
+      '=======',
+      '  try {',
+      "    const text = readFileSync(file, 'utf8');",
+      '    return JSON.parse(text);',
+      '  } catch (err) {',
+      "    throw new Error('Failed to load users');",
+      '  }',
+      '>>>>>>> REPLACE'
+    );
+    const reply = `To add error handling, wrap it in try/catch. Here is the file:\n\n\`\`\`typescript\n${file.trimEnd()}\n\`\`\`\n\n${edit}`;
+    const r = repairEditBlocks(reply, 'userStore.ts', file);
+    expect(r.edits).toBe(1);
+    expect(r.text).toBe(`To add error handling, wrap it in try/catch. Here is the file:\n\n${edit}`);
+  });
+
+  it('narrows an edit whose SEARCH is the whole file to the lines that changed (qwen2.5-coder:3b)', () => {
+    const file = lines('import fs from "fs";', '', 'export function a() {', '  return 1;', '}', '', 'export function b() {', '  return 2;', '}', '');
+    const changed = file.replace('  return 2;', '  return 3;');
+    const reply = lines('FILE: x.ts', '<<<<<<< SEARCH', file.trimEnd(), '=======', changed.trimEnd(), '>>>>>>> REPLACE');
+    const r = repairEditBlocks(reply, 'x.ts', file);
+    expect(r.edits).toBe(1);
+    expect(r.text).toBe(
+      lines('FILE: x.ts', '<<<<<<< SEARCH', '', 'export function b() {', '  return 2;', '}', '=======', '', 'export function b() {', '  return 3;', '}', '>>>>>>> REPLACE')
+    );
+  });
+
+  it('keeps code blocks that are not a copy of the file, and keeps everything without the file text', () => {
+    const edit = lines('FILE: a.ts', '<<<<<<< SEARCH', 'const x = 1;', '=======', 'const x = 2;', '>>>>>>> REPLACE');
+    const reply = `Usage:\n\n\`\`\`ts\nconsole.log(x);\n\`\`\`\n\n${edit}`;
+    expect(repairEditBlocks(reply, 'a.ts', 'const x = 1;\nconst y = 3;\n').text).toBe(reply);
+    expect(repairEditBlocks(`\`\`\`ts\nconst x = 1;\nconst y = 3;\n\`\`\`\n\n${edit}`, 'a.ts').text).toContain('const y = 3;');
+  });
+
   it('leaves a strict edit as it is', () => {
     const reply = lines('FILE: src/a.ts', '<<<<<<< SEARCH', 'const x = 1;', '=======', 'const x = 2;', '>>>>>>> REPLACE');
     expect(repairEditBlocks(reply, 'src/a.ts')).toEqual({ text: reply, edits: 1, noOps: 0 });

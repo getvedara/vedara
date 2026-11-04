@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- While an answer streams, each code block and edit shows as one progress line ("Writing edit to
+  userStore.ts… 12 lines") instead of scrolling past. Small models often type out the whole file before
+  the edit; the full answer appears when it's done.
+- When an answer has an edit, a copy of the whole current file in the same answer is dropped.
+- An edit whose SEARCH is the whole file is narrowed to the lines that changed, so the preview shows the
+  change rather than the file.
+- Edit cards are labelled "Edit" instead of "Frugal Diff".
+
 ## 0.1.0 (preview)
 
 First Marketplace release under the name **Vedara** (previously developed as "Open Studio").

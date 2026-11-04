@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_FORMATS, applyResponse, referenceResponse, resolvePath, userPrompt } from '../src/formats/index.ts';
+import { responseSchema } from '../src/formats/structured.ts';
 import { normalizeCode } from '../src/checks.ts';
 import { loadTasks } from '../src/tasks.ts';
 
@@ -52,6 +53,52 @@ describe('format appliers on model-style responses', () => {
     expect(r.error).toMatch(/unknown file/);
   });
 
+  it('search-replace-json: applies JSON edits, tolerating a trailing newline and a fence around the JSON', () => {
+    const json = JSON.stringify({ edits: [{ file: 'age.go', search: '\treturn age > AdultAge\n', replace: '\treturn age >= AdultAge\n' }] });
+    const r = applyResponse(single, 'search-replace-json', '```json\n' + json + '\n```');
+    expect(r.ok, r.error).toBe(true);
+    expect(r.files!['age.go']).toBe(single.after['age.go']);
+  });
+
+  it('search-replace-json: rejects a reply without an edits array', () => {
+    expect(applyResponse(single, 'search-replace-json', '{"answer": "done"}').error).toMatch(/edits/);
+  });
+
+  it('anchored-json: replaces the anchored range', () => {
+    const lines = single.before['age.go'].split('\n');
+    const n = lines.findIndex((l) => l === '\treturn age > AdultAge') + 1;
+    const anchor = `${n} | \treturn age > AdultAge`;
+    const resp = JSON.stringify({ edits: [{ file: 'age.go', first_line: anchor, last_line: anchor, replace: '\treturn age >= AdultAge' }] });
+    const r = applyResponse(single, 'anchored-json', resp);
+    expect(r.ok, r.error).toBe(true);
+    expect(r.files!['age.go']).toBe(single.after['age.go']);
+  });
+
+  it('anchored-json: an anchor that does not match its line fails', () => {
+    const resp = JSON.stringify({ edits: [{ file: 'age.go', first_line: '1 | nope', last_line: '1 | nope', replace: 'x' }] });
+    expect(applyResponse(single, 'anchored-json', resp).error).toMatch(/line 1 of age.go is not/);
+  });
+
+  it('anchored-json: overlapping and reversed ranges fail', () => {
+    const l = single.before['age.go'].split('\n');
+    const a = (n: number) => `${n} | ${l[n - 1]}`;
+    const overlap = JSON.stringify({ edits: [
+      { file: 'age.go', first_line: a(1), last_line: a(3), replace: 'x' },
+      { file: 'age.go', first_line: a(3), last_line: a(4), replace: 'y' },
+    ] });
+    expect(applyResponse(single, 'anchored-json', overlap).error).toMatch(/overlap/);
+    const reversed = JSON.stringify({ edits: [{ file: 'age.go', first_line: a(3), last_line: a(1), replace: 'x' }] });
+    expect(applyResponse(single, 'anchored-json', reversed).error).toMatch(/comes before/);
+  });
+
+  it('anchored-json: an empty replace deletes the range', () => {
+    const l = single.before['age.go'].split('\n');
+    const resp = JSON.stringify({ edits: [{ file: 'age.go', first_line: `1 | ${l[0]}`, last_line: `1 | ${l[0]}`, replace: '' }] });
+    const r = applyResponse(single, 'anchored-json', resp);
+    expect(r.ok, r.error).toBe(true);
+    expect(r.files!['age.go']).toBe(l.slice(1).join('\n'));
+  });
+
   it('reference responses reproduce after/ in every format for every task', () => {
     for (const task of loadTasks()) {
       for (const format of ALL_FORMATS) {
@@ -67,6 +114,15 @@ describe('prompts and paths', () => {
   it('hinted prompts number lines; others show the file verbatim', () => {
     expect(userPrompt(single, 'search-replace-hinted')).toContain(' 5 | func IsAdult(age int) bool {');
     expect(userPrompt(single, 'udiff')).toContain('\nfunc IsAdult(age int) bool {');
+    expect(userPrompt(single, 'anchored-json')).toContain('\n5 | func IsAdult(age int) bool {');
+  });
+
+  it('anchored-json schema limits anchors to the real lines of the task files', () => {
+    const schema = responseSchema(multi, 'anchored-json') as { properties: { edits: { items: { properties: { first_line: { enum: string[] }; file: { enum: string[] } } } } } };
+    const item = schema.properties.edits.items.properties;
+    expect(item.file.enum).toEqual(multi.files);
+    expect(item.first_line.enum).toContain(`1 | ${multi.before[multi.files[0]].split('\n')[0]}`);
+    expect(item.first_line.enum.every((a) => /^\d+ \| /.test(a))).toBe(true);
   });
 
   it('resolves model-written paths', () => {
