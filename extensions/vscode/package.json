@@ -2,7 +2,7 @@
   "name": "vedara-vscode",
   "displayName": "Vedara — Local AI",
   "description": "Private, offline AI coding with local models via Ollama: Tab completion, chat, reviewed multi-file edits and one-click undo. No cloud, no account, no telemetry.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "vedara",
   "preview": true,
   "engines": {
@@ -193,7 +193,10 @@
       "properties": {
         "vedara.serverType": {
           "type": "string",
-          "enum": ["ollama", "openai"],
+          "enum": [
+            "ollama",
+            "openai"
+          ],
           "enumDescriptions": [
             "Ollama, on this machine or another one.",
             "Any OpenAI-compatible server: vLLM, llama.cpp (llama-server), LM Studio, or a team GPU server."

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (preview)
 
 - While an answer streams, each code block and edit shows as one progress line ("Writing edit to
   userStore.ts… 12 lines") instead of scrolling past. Small models often type out the whole file before

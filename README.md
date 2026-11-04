@@ -32,14 +32,16 @@ What it does:
   policy that fixes the server and blocks every other host, and an offline install bundle
   (`npm run bundle:offline` in `extensions/vscode`).
 
-It is not on the VS Code Marketplace yet. To build and install it:
+It is not on the VS Code Marketplace yet. Download the `.vsix` from the
+[latest release](https://github.com/getvedara/vedara/releases/latest) and run
+`code --install-extension vedara-vscode-<version>.vsix`, or build and install it yourself:
 
 ```bash
 npm install
 npm run extensions:compile
 cd extensions/vscode
 npx @vscode/vsce package --no-dependencies
-code --install-extension vedara-vscode-0.1.0.vsix
+code --install-extension vedara-vscode-0.1.1.vsix
 ```
 
 Settings, commands and details are in [extensions/vscode/README.md](./extensions/vscode/README.md).
