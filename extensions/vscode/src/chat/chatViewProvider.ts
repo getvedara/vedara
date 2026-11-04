@@ -664,6 +664,39 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       border-bottom: 1px solid var(--border);
     }
 
+    .diff-view {
+      margin: 0;
+      padding: 6px 0;
+      overflow-x: auto;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    /* Every line as wide as the widest, so colored backgrounds run edge to edge when scrolled. */
+    .diff-lines {
+      display: inline-block;
+      min-width: 100%;
+    }
+    .diff-line {
+      white-space: pre;
+      padding: 0 10px 0 4px;
+    }
+    .diff-sign {
+      display: inline-block;
+      width: 14px;
+      user-select: none;
+      opacity: 0.8;
+    }
+    .diff-line.same { opacity: 0.6; }
+    .diff-line.del {
+      background: var(--vscode-diffEditor-removedLineBackground, rgba(248, 81, 73, 0.18));
+    }
+    .diff-line.del .diff-sign { color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149); }
+    .diff-line.add {
+      background: var(--vscode-diffEditor-insertedLineBackground, rgba(46, 160, 67, 0.18));
+    }
+    .diff-line.add .diff-sign { color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950); }
+
     .diff-actions {
       display: flex;
       gap: 6px;
@@ -868,7 +901,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         while ((match = diffRegex.exec(rawText)) !== null) {
           var before = rawText.substring(lastIdx, match.index);
-          formatted += formatRegularText(before);
+          formatted += formatRegularText(trimNewlines(before, lastIdx > 0, true));
 
           var diffChunk = match[1];
           var diffId = 'diff-' + (++diffBlockIdCounter);
@@ -881,7 +914,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           formatted += '    <span>📄 ' + escapeHtml(targetFile) + '</span>';
           formatted += '    <span>Edit</span>';
           formatted += '  </div>';
-          formatted += '  <pre><code>' + escapeHtml(diffChunk) + '</code></pre>';
+          formatted += renderEditDiff(diffChunk);
           formatted += '  <div class="diff-actions">';
           formatted += '    <button class="diff-btn preview" data-diff="' + encodeURIComponent(diffChunk) + '">👁️ Preview Diff</button>';
           formatted += '    <button class="diff-btn apply" data-id="' + diffId + '" data-diff="' + encodeURIComponent(diffChunk) + '">⚡ Apply Diff</button>';
@@ -893,8 +926,88 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         var remaining = rawText.substring(lastIdx);
-        formatted += formatRegularText(remaining);
+        formatted += formatRegularText(trimNewlines(remaining, lastIdx > 0, false));
         return formatted;
+      }
+
+      // Blank lines next to an edit card would render as empty line breaks; the card has its own margin.
+      function trimNewlines(text, leading, trailing) {
+        var nl = String.fromCharCode(10);
+        var cr = String.fromCharCode(13);
+        var s = 0;
+        var e = text.length;
+        if (leading) while (s < e && (text[s] === nl || text[s] === cr)) s++;
+        if (trailing) while (e > s && (text[e - 1] === nl || text[e - 1] === cr)) e--;
+        return text.substring(s, e);
+      }
+
+      // Shows one SEARCH/REPLACE edit as a diff: removed lines in red, added lines in green,
+      // unchanged lines dimmed. The raw edit stays on the buttons for Preview and Apply.
+      function renderEditDiff(chunk) {
+        var nl = String.fromCharCode(10);
+        var cr = String.fromCharCode(13);
+        var lines = chunk.split(nl);
+        var search = [];
+        var replace = [];
+        var side = null;
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].split(cr).join('');
+          var t = line.trim();
+          if (side === null) {
+            if (t.indexOf('<<<<<<<') === 0) side = search;
+          } else if (side === search && t.indexOf('=======') === 0) {
+            side = replace;
+          } else if (side === replace && t.indexOf('>>>>>>>') === 0) {
+            break;
+          } else {
+            side.push(line);
+          }
+        }
+
+        // Longest common subsequence of lines; large edits fall back to all-removed then all-added.
+        var n = search.length;
+        var m = replace.length;
+        var ops = [];
+        if (n * m <= 160000) {
+          var w = m + 1;
+          var lcs = new Array((n + 1) * w);
+          for (var z = 0; z < lcs.length; z++) lcs[z] = 0;
+          for (var a = n - 1; a >= 0; a--) {
+            for (var b = m - 1; b >= 0; b--) {
+              lcs[a * w + b] = search[a] === replace[b] ? lcs[(a + 1) * w + b + 1] + 1 : Math.max(lcs[(a + 1) * w + b], lcs[a * w + b + 1]);
+            }
+          }
+          var x = 0;
+          var y = 0;
+          while (x < n || y < m) {
+            if (x < n && y < m && search[x] === replace[y]) {
+              ops.push(['same', search[x]]);
+              x++;
+              y++;
+            } else if (x < n && (y >= m || lcs[(x + 1) * w + y] >= lcs[x * w + y + 1])) {
+              // On a tie, removed lines come first, as in any diff.
+              ops.push(['del', search[x++]]);
+            } else {
+              ops.push(['add', replace[y++]]);
+            }
+          }
+        } else {
+          for (var d = 0; d < n; d++) ops.push(['del', search[d]]);
+          for (var e = 0; e < m; e++) ops.push(['add', replace[e]]);
+        }
+
+        // Unchanged blank lines at the edges are context the reader doesn't need.
+        while (ops.length && ops[0][0] === 'same' && !ops[0][1].trim()) ops.shift();
+        while (ops.length && ops[ops.length - 1][0] === 'same' && !ops[ops.length - 1][1].trim()) ops.pop();
+
+        var sign = { same: ' ', del: '-', add: '+' };
+        var html = '<div class="diff-view"><div class="diff-lines">';
+        for (var k = 0; k < ops.length; k++) {
+          html +=
+            '<div class="diff-line ' + ops[k][0] + '"><span class="diff-sign">' + sign[ops[k][0]] + '</span>' +
+            (escapeHtml(ops[k][1]) || ' ') + '</div>';
+        }
+        return html + '</div></div>';
       }
 
       function formatRegularText(text) {

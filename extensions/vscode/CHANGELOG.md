@@ -8,7 +8,8 @@
 - When an answer has an edit, a copy of the whole current file in the same answer is dropped.
 - An edit whose SEARCH is the whole file is narrowed to the lines that changed, so the preview shows the
   change rather than the file.
-- Edit cards are labelled "Edit" instead of "Frugal Diff".
+- Edit cards are labelled "Edit" instead of "Frugal Diff", and show the change as a diff (removed lines
+  in red, added lines in green) instead of raw SEARCH/REPLACE markers.
 
 ## 0.1.0 (preview)
 

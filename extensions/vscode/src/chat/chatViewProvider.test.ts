@@ -226,7 +226,37 @@ describe('VS Code Extension - ChatViewProvider', () => {
       expect(out).toContain('Preview Diff');
       expect(out).toContain('Apply Diff');
       expect(out).toContain('src/a.ts');
+      // No empty line breaks between the card and the text around it.
+      expect(out).toMatch(/Here you go:<div class="diff-card"/);
+      expect(out).toMatch(/<\/div><\/div>Done\.$/);
       expect(renderMarkdown('Just text with `code`.')).not.toContain('diff-card');
+
+      // The edit shows as a diff, not raw markers; the buttons keep the raw edit.
+      const edit = renderMarkdown(
+        'FILE: a.ts\n<<<<<<< SEARCH\nfunction f() {\n  return 1;\n}\n=======\nfunction f() {\n  return 2;\n}\n>>>>>>> REPLACE'
+      );
+      expect(edit).toContain('<div class="diff-line del"><span class="diff-sign">-</span>  return 1;</div>');
+      expect(edit).toContain('<div class="diff-line add"><span class="diff-sign">+</span>  return 2;</div>');
+      expect(edit).toContain('<div class="diff-line same"><span class="diff-sign"> </span>function f() {</div>');
+      expect(edit.match(/class="diff-line /g)).toHaveLength(4);
+      expect(edit.indexOf('return 1;')).toBeLessThan(edit.indexOf('return 2;'));
+
+      // Removed lines before added ones in a larger change, and no blank context rows at the edges.
+      const wrap = renderMarkdown(
+        '<<<<<<< SEARCH\n\nfunction g() {\n  a();\n}\n\n=======\n\nfunction g() {\n  try {\n    a();\n  } catch (e) {}\n}\n\n>>>>>>> REPLACE'
+      );
+      const rows = [...wrap.matchAll(/class="diff-line (\w+)"><span class="diff-sign">.<\/span>([^<]*)<\/div>/g)].map((r) => `${r[1]} ${r[2]}`);
+      expect(rows).toEqual([
+        'same function g() {',
+        'del   a();',
+        'add   try {',
+        'add     a();',
+        'add   } catch (e) {}',
+        'same }',
+      ]);
+      expect(edit).not.toContain('&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH');
+      expect(decodeURIComponent(edit.match(/data-diff="([^"]*)"/)![1])).toContain('<<<<<<< SEARCH');
+      expect(renderMarkdown('<<<<<<< SEARCH\n<b>\n=======\n<i>\n>>>>>>> REPLACE')).toContain('&lt;i&gt;');
     });
 
     it('shows code and edits as one progress line each while an answer streams', () => {
