@@ -120,12 +120,12 @@ export class CheckpointService {
       this.nonGitNoticeShown = true;
       void vscode.window.showInformationMessage(
         'Vedara: This workspace is not a git repository, so no checkpoint was taken. ' +
-          "Use 'Vedara: Rollback Last Applied Diff' to undo AI edits (in-memory; lost when VS Code reloads)."
+          "Use 'Vedara: Rollback Last Applied Diff' to undo AI edits; the last 20 are kept, also across restarts."
       );
     }
     if (outcome.errors.length > 0) {
       void vscode.window.showWarningMessage(
-        `Vedara: Checkpoint failed (${outcome.errors.join('; ')}). The edit was applied; in-memory rollback is still available.`
+        `Vedara: Checkpoint failed (${outcome.errors.join('; ')}). The edit was applied; 'Vedara: Rollback Last Applied Diff' can still undo it.`
       );
     }
 

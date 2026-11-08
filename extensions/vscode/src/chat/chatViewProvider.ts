@@ -4,6 +4,7 @@ import { getServerConfig } from '../server/serverConfig';
 import { pickChatModel, withTag } from '../models/modelRecommendation';
 import { applyMultiFilePatch, dryRunMultiFilePatch, writeFilesWithCheckpoint } from '../diff/patchOrchestrator';
 import { planInsertion } from './insertCode';
+import { MENTION_EXCLUDE, MentionedFile, buildMentionContext, chooseMention, extractMentions } from './mentions';
 import {
   VedaraDiffContentProvider,
   createVirtualDiffUri,
@@ -18,6 +19,7 @@ import {
   getEditorContext,
   hasEditBlock,
   looksLikeEditRequest,
+  MAX_FILE_CONTEXT_CHARS,
   refersToCode,
 } from './promptBuilder';
 import { organizeEdits, repairEditBlocks } from './editRepair';
@@ -62,8 +64,50 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** The conversation as the model sees it (without the attached file, which is sent fresh each time). */
   private _history: ChatTurn[] = [];
   private _currentModel = 'qwen2.5-coder:1.5b';
+  /** Workspace files for `@` mentions, by relative path; refreshed when older than 30 seconds. */
+  private _fileList?: { at: number; files: Map<string, vscode.Uri> };
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
+
+  /** Files that can be mentioned with `@`: the workspace without dependencies and build output. */
+  public async listWorkspaceFiles(): Promise<Map<string, vscode.Uri>> {
+    if (this._fileList && Date.now() - this._fileList.at < 30_000) return this._fileList.files;
+    const uris = (await vscode.workspace.findFiles?.('**/*', MENTION_EXCLUDE, 5000)) ?? [];
+    const files = new Map<string, vscode.Uri>();
+    for (const uri of uris) {
+      const rel = vscode.workspace.asRelativePath(uri).replace(/\\/g, '/');
+      // A path with a space can't be written as one @token.
+      if (!/\s/.test(rel)) files.set(rel, uri);
+    }
+    this._fileList = { at: Date.now(), files: new Map([...files].sort(([a], [b]) => a.localeCompare(b))) };
+    return this._fileList.files;
+  }
+
+  /** The files a message mentions with `@`, read from the workspace, and the mentions that matched none. */
+  private async readMentions(text: string, skip?: string): Promise<{ files: MentionedFile[]; missing: string[] }> {
+    const tokens = extractMentions(text);
+    if (tokens.length === 0) return { files: [], missing: [] };
+    const all = await this.listWorkspaceFiles();
+    const paths = [...all.keys()];
+    const files: MentionedFile[] = [];
+    const missing: string[] = [];
+    for (const token of tokens) {
+      const rel = chooseMention(token, paths);
+      if (!rel) {
+        // "@Component" is more likely a decorator than a file; only report what looks like a path.
+        if (/[./]/.test(token)) missing.push(token);
+        continue;
+      }
+      if (rel === skip || files.some((f) => f.path === rel)) continue;
+      try {
+        const doc = await vscode.workspace.openTextDocument(all.get(rel)!);
+        files.push({ path: rel, languageId: doc.languageId, text: doc.getText() });
+      } catch {
+        missing.push(token);
+      }
+    }
+    return { files, missing };
+  }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -94,6 +138,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'previewDiff':
           await this.handlePreviewDiff(data.diff);
+          break;
+        case 'listFiles':
+          this._view?.webview.postMessage({ type: 'fileList', files: [...(await this.listWorkspaceFiles()).keys()] });
           break;
         case 'insertCode':
           await this.handleInsertCode(data.code, data.blockId);
@@ -207,7 +254,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // an attached file back.
     const aboutCode =
       !!editorContext && (!!editorContext.selectedText.trim() || refersToCode(userText, editorContext.fileText));
-    const fileContext = editorContext && aboutCode ? buildFileContext(editorContext) : undefined;
+    // Files mentioned with @ go along too, sharing the open file's budget so the prompt still fits.
+    const mentions = await this.readMentions(userText, editorContext?.relativePath);
+    if (mentions.missing.length > 0) {
+      const names = mentions.missing.map((m) => `@${m}`).join(', ');
+      this.postSystemMessage(`Couldn't find ${names} in this workspace, so ${mentions.missing.length === 1 ? 'it was' : 'they were'} not sent.`, false);
+    }
+    const budget = mentions.files.length > 0 ? Math.floor(MAX_FILE_CONTEXT_CHARS / 2) : MAX_FILE_CONTEXT_CHARS;
+    const contextParts = [
+      editorContext && (aboutCode || mentions.files.length > 0) ? buildFileContext(editorContext, budget) : undefined,
+      buildMentionContext(mentions.files, budget),
+    ].filter((p): p is string => !!p);
+    const fileContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
     const messages = buildChatMessages({ history: this._history, userText, fileContext, systemPrompt });
 
     if (this._view) {
@@ -258,6 +316,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         // Edits that build on each other become one; edits that don't match the file are marked.
         let unmatched: number[] = [];
+        let unbalanced: number[] = [];
         if (editorContext?.fileText !== undefined && hasEditBlock(reply)) {
           const organized = organizeEdits(
             reply,
@@ -266,6 +325,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           );
           reply = organized.text;
           unmatched = organized.unmatched;
+          unbalanced = organized.unbalanced;
         }
         this._history.push(
           { role: 'user', content: historyText?.trim() || userText },
@@ -278,11 +338,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
         if (this._view) {
           const speed = stats.tokensPerSecond ? ` · ${stats.tokensPerSecond.toFixed(0)} tokens/s` : '';
+          const read = mentions.files.length > 0 ? ` · read ${mentions.files.map((f) => f.path).join(', ')}` : '';
           this._view.webview.postMessage({
             type: 'streamComplete',
-            footer: `${model}${speed}`,
+            footer: `${model}${speed}${read}`,
             ...(reply !== accumulatedResponse ? { text: reply } : {}),
             ...(unmatched.length ? { unmatched } : {}),
+            ...(unbalanced.length ? { unbalanced } : {}),
           });
         }
         if (stats.doneReason === 'length') {
@@ -848,6 +910,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     textarea:focus { border-color: var(--btn-bg); }
 
+    .input-wrapper { position: relative; }
+    .mention-list {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: calc(100% + 4px);
+      max-height: 220px;
+      overflow-y: auto;
+      background: var(--vscode-editorWidget-background, var(--card-bg));
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      z-index: 10;
+      font-size: 12px;
+    }
+    .mention-item {
+      padding: 4px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mention-item.active {
+      background: var(--vscode-list-activeSelectionBackground, var(--btn-bg));
+      color: var(--vscode-list-activeSelectionForeground, var(--btn-fg));
+    }
+    .mention-dir { opacity: 0.65; margin-left: 6px; }
+
     .footer-actions {
       display: flex;
       justify-content: flex-end;
@@ -895,7 +985,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   <footer>
     <div class="input-wrapper">
-      <textarea id="promptInput" placeholder="Ask Vedara AI... (Enter to send, Shift+Enter for new line)"></textarea>
+      <div id="mentionList" class="mention-list" style="display: none;"></div>
+      <textarea id="promptInput" placeholder="Ask Vedara AI... (@ to add a file, Enter to send, Shift+Enter for new line)"></textarea>
       <div class="footer-actions">
         <button id="stopBtn" class="btn stop">Stop</button>
         <button id="sendBtn" class="btn primary" onclick="sendUserMessage()">Send</button>
@@ -970,8 +1061,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
 
       // unmatched: positions (0-based, in order) of edits that don't match the current file; their
-      // cards say so instead of offering Preview and Apply.
-      function renderMarkdown(rawText, unmatched) {
+      // cards say so instead of offering Preview and Apply. unbalanced: positions of edits that leave
+      // brackets unbalanced; their cards keep the buttons but warn.
+      function renderMarkdown(rawText, unmatched, unbalanced) {
         var nl = String.fromCharCode(10);
         var tb = String.fromCharCode(96, 96, 96);
         // This script sits in a TypeScript template literal, which halves every backslash: write
@@ -985,7 +1077,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         var editIndex = 0;
 
         while ((match = diffRegex.exec(rawText)) !== null) {
-          var cannotApply = !!unmatched && unmatched.indexOf(editIndex++) >= 0;
+          var cannotApply = !!unmatched && unmatched.indexOf(editIndex) >= 0;
+          var looksBroken = !!unbalanced && unbalanced.indexOf(editIndex) >= 0;
+          editIndex++;
           var before = rawText.substring(lastIdx, match.index);
           formatted += formatRegularText(trimNewlines(before, lastIdx > 0, true), true);
 
@@ -1006,6 +1100,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             formatted += '</div>';
             lastIdx = match.index + match[0].length;
             continue;
+          }
+          if (looksBroken) {
+            formatted += '  <div class="diff-note">⚠ This edit leaves brackets ({, ( or [) unbalanced, so the code probably won’t compile. Check it with Preview Diff before applying.</div>';
           }
           formatted += '  <div class="diff-actions">';
           formatted += '    <button class="diff-btn preview" data-diff="' + encodeURIComponent(diffChunk) + '">👁️ Preview Diff</button>';
@@ -1279,6 +1376,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (!text || isStreaming) return;
 
         input.value = '';
+        hideMentions();
 
         // Add user bubble
         var bubble = document.createElement('div');
@@ -1323,11 +1421,123 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       if (promptInput) {
         promptInput.addEventListener('keydown', function (e) {
+          if (mentionItems.length > 0) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              var n = mentionItems.length;
+              mentionIndex = (mentionIndex + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+              renderMentions();
+              return;
+            }
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              pickMention(mentionIndex);
+              return;
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              hideMentions();
+              return;
+            }
+          }
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             sendUserMessage();
           }
         });
+        promptInput.addEventListener('input', updateMentions);
+        promptInput.addEventListener('blur', function () {
+          setTimeout(hideMentions, 150);
+        });
+      }
+
+      // "@" in the input opens a list of workspace files; picking one writes "@path " into the message,
+      // and the extension sends that file to the model with it.
+      var mentionList = document.getElementById('mentionList');
+      var workspaceFiles = null;
+      var filesAskedAt = 0;
+      var mentionItems = [];
+      var mentionIndex = 0;
+
+      function mentionQuery() {
+        if (!promptInput) return null;
+        var nl = String.fromCharCode(10);
+        var text = promptInput.value.substring(0, promptInput.selectionStart);
+        var i = text.length - 1;
+        while (i >= 0 && text[i] !== ' ' && text[i] !== nl && text[i] !== '@') i--;
+        if (i < 0 || text[i] !== '@') return null;
+        // "a@b" is an e-mail address, not a mention.
+        if (i > 0 && text[i - 1] !== ' ' && text[i - 1] !== nl) return null;
+        return { start: i, query: text.substring(i + 1) };
+      }
+
+      function updateMentions() {
+        var q = mentionQuery();
+        if (!q) {
+          hideMentions();
+          return;
+        }
+        if (!workspaceFiles || Date.now() - filesAskedAt > 30000) {
+          filesAskedAt = Date.now();
+          if (vscode) vscode.postMessage({ command: 'listFiles' });
+        }
+        if (!workspaceFiles) return;
+        var query = q.query.toLowerCase();
+        var scored = [];
+        for (var k = 0; k < workspaceFiles.length; k++) {
+          var lower = workspaceFiles[k].toLowerCase();
+          var base = lower.substring(lower.lastIndexOf('/') + 1);
+          var score = !query ? 2 : base.indexOf(query) === 0 ? 0 : base.indexOf(query) > 0 ? 1 : lower.indexOf(query) >= 0 ? 2 : -1;
+          if (score >= 0) scored.push([score, workspaceFiles[k]]);
+        }
+        scored.sort(function (a, b) {
+          return a[0] - b[0] || a[1].length - b[1].length || (a[1] < b[1] ? -1 : 1);
+        });
+        mentionItems = scored.slice(0, 8).map(function (s) {
+          return s[1];
+        });
+        mentionIndex = 0;
+        renderMentions();
+      }
+
+      function renderMentions() {
+        if (!mentionList) return;
+        if (mentionItems.length === 0) {
+          hideMentions();
+          return;
+        }
+        mentionList.innerHTML = mentionItems
+          .map(function (f, k) {
+            var base = f.substring(f.lastIndexOf('/') + 1);
+            var dir = f.substring(0, f.length - base.length);
+            return '<div class="mention-item' + (k === mentionIndex ? ' active' : '') + '" data-k="' + k + '">' +
+              escapeHtml(base) + '<span class="mention-dir">' + escapeHtml(dir) + '</span></div>';
+          })
+          .join('');
+        mentionList.style.display = 'block';
+        mentionList.querySelectorAll('.mention-item').forEach(function (el) {
+          el.onmousedown = function (e) {
+            e.preventDefault();
+            pickMention(Number(el.getAttribute('data-k')));
+          };
+        });
+      }
+
+      function hideMentions() {
+        mentionItems = [];
+        if (mentionList) mentionList.style.display = 'none';
+      }
+
+      function pickMention(k) {
+        var q = mentionQuery();
+        if (!q || !mentionItems[k]) return;
+        var value = promptInput.value;
+        var insert = '@' + mentionItems[k] + ' ';
+        promptInput.value = value.substring(0, q.start) + insert + value.substring(promptInput.selectionStart);
+        var pos = q.start + insert.length;
+        promptInput.setSelectionRange(pos, pos);
+        hideMentions();
+        promptInput.focus();
       }
 
       // Handle messages from Extension Host
@@ -1388,7 +1598,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             if (stopBtn) stopBtn.style.display = 'none';
             if (currentAssistantBubble) {
               if (typeof msg.text === 'string') currentAssistantText = msg.text;
-              currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantText, msg.unmatched);
+              currentAssistantBubble.innerHTML = renderMarkdown(currentAssistantText, msg.unmatched, msg.unbalanced);
               if (msg.footer) {
                 var footer = document.createElement('div');
                 footer.className = 'msg-footer';
@@ -1437,6 +1647,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 applyBtn.innerText = msg.success ? 'Applied' : 'Retry Apply';
               }
             }
+            break;
+
+          case 'fileList':
+            workspaceFiles = msg.files || [];
+            updateMentions();
             break;
 
           case 'clearChat':

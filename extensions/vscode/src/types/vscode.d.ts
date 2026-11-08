@@ -319,6 +319,7 @@ declare module 'vscode' {
   export interface ExtensionContext {
     readonly secrets: SecretStorage;
     readonly globalState: Memento;
+    readonly workspaceState: Memento;
     readonly subscriptions: Disposable[];
     readonly extensionUri: any;
     readonly extensionPath: string;
@@ -430,6 +431,7 @@ declare module 'vscode' {
     ): Disposable;
     export function openTextDocument(uriOrFileName: Uri | string): Thenable<TextDocument>;
     export const textDocuments: readonly TextDocument[];
+    export function findFiles(include: string, exclude?: string | null, maxResults?: number): Thenable<Uri[]>;
     export function asRelativePath(pathOrUri: string | Uri, includeWorkspaceFolder?: boolean): string;
     export const onDidChangeTextDocument: Event<TextDocumentChangeEvent>;
     export const onDidOpenTextDocument: Event<TextDocument>;

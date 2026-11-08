@@ -46,6 +46,7 @@ vi.mock('vscode', () => {
       })),
       openTextDocument: vi.fn(),
       asRelativePath: vi.fn((uri: { fsPath: string }) => uri.fsPath.replace('d:/projects/demo/', '')),
+      findFiles: vi.fn(async () => [new MockUri('d:/projects/demo/src/b.ts'), new MockUri('d:/projects/demo/src/math.ts')]),
     },
     window: {
       activeTextEditor: undefined,
@@ -272,6 +273,10 @@ describe('VS Code Extension - ChatViewProvider', () => {
       expect(marked).toContain('class="diff-card unmatched"');
       expect(marked).toContain('This edit doesn’t match the current file');
       expect(renderMarkdown(two).match(/class="diff-btn apply"/g)).toHaveLength(2);
+      // An edit marked as leaving brackets unbalanced keeps its buttons but warns.
+      const warned = (renderMarkdown as (t: string, u?: number[], b?: number[]) => string)(two, [], [0]);
+      expect(warned.match(/class="diff-btn apply"/g)).toHaveLength(2);
+      expect(warned.match(/brackets \(\{, \( or \[\) unbalanced/g)).toHaveLength(1);
 
       // Code blocks in an answer get Insert into File and Copy; commands get Copy only; edit cards neither.
       const code = renderMarkdown('Add this:\n```ts\nexport function b() {}\n```\nRun:\n```bash\nnpm test\n```');
@@ -287,6 +292,60 @@ describe('VS Code Extension - ChatViewProvider', () => {
       expect(far).toContain('keep 1;');
       expect(far).not.toContain('keep 5;');
       expect(far).toContain('keep 10;');
+    });
+
+    it('produces a page script that compiles (a syntax error would leave the chat blank)', () => {
+      const html = provider.getHtmlForWebview(mockWebview);
+      const scripts = [...html.matchAll(/<script nonce="[^"]*">([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+      expect(scripts.length).toBeGreaterThan(0);
+      for (const script of scripts) expect(() => new Function(script)).not.toThrow();
+    });
+
+    it('offers workspace files when @ is typed and writes the picked one into the message', () => {
+      const html = provider.getHtmlForWebview(mockWebview);
+      const start = html.indexOf('// "@" in the input opens');
+      const end = html.indexOf('// Handle messages from Extension Host');
+      expect(start).toBeGreaterThan(0);
+      expect(end).toBeGreaterThan(start);
+
+      const list = { innerHTML: '', style: { display: 'none' }, querySelectorAll: () => [] as unknown[] };
+      const input = {
+        value: '',
+        selectionStart: 0,
+        setSelectionRange(a: number) {
+          this.selectionStart = a;
+        },
+        focus() {},
+      };
+      const posted: unknown[] = [];
+      const page = new Function(
+        'document',
+        'promptInput',
+        'vscode',
+        `function escapeHtml(t) { return t; }\n${html.slice(start, end)}\n` +
+          'return { updateMentions, pickMention, setFiles: (f) => { workspaceFiles = f; }, items: () => mentionItems };'
+      )({ getElementById: () => list }, input, { postMessage: (m: unknown) => posted.push(m) });
+
+      const type = (text: string) => {
+        input.value = text;
+        input.selectionStart = text.length;
+        page.updateMentions();
+      };
+      type('rename add in @');
+      expect(posted).toEqual([{ command: 'listFiles' }]);
+      page.setFiles(['src/chat/store.ts', 'src/math.ts', 'test/math.test.ts', 'README.md']);
+      type('rename add in @mat');
+      expect(page.items()).toEqual(['src/math.ts', 'test/math.test.ts']);
+      expect(list.style.display).toBe('block');
+      expect(list.innerHTML).toContain('math.ts<span class="mention-dir">src/</span>');
+
+      page.pickMention(0);
+      expect(input.value).toBe('rename add in @src/math.ts ');
+      expect(list.style.display).toBe('none');
+
+      // An e-mail address doesn't open the list.
+      type('mail a@ma');
+      expect(page.items()).toEqual([]);
     });
 
     it('shows code and edits as one progress line each while an answer streams', () => {
@@ -478,6 +537,28 @@ describe('VS Code Extension - ChatViewProvider', () => {
       );
       expect(revealRange).toHaveBeenCalled();
       expect(postedMessages).toContainEqual({ type: 'codeResult', blockId: 'code-1', success: true, message: 'Inserted 3 lines at line 3 of src/math.ts.' });
+    });
+
+    it('sends a file mentioned with @ to the model with the open file, and says which files it read', async () => {
+      (vscode.window as any).activeTextEditor = {
+        document: { fileName: 'd:/projects/demo/src/math.ts', languageId: 'typescript', lineCount: 1, getText: () => 'export const add = 1;' },
+        selection: new (vscode as any).Selection(new (vscode as any).Position(0, 0), new (vscode as any).Position(0, 0)),
+      };
+      vi.mocked(vscode.workspace.openTextDocument).mockResolvedValueOnce({ languageId: 'typescript', getText: () => 'export const b = 2;\n' } as any);
+      await provider.handleUserMessage('use @b.ts and @src/math.ts to rename add');
+      const user = lastChatOptions.messages[lastChatOptions.messages.length - 1].content;
+      expect(user).toContain('Current file: src/math.ts');
+      expect(user).toContain('File mentioned by the user: src/b.ts (1 line):\n```typescript\nexport const b = 2;\n```');
+      // The open file is already there; mentioning it doesn't send it twice.
+      expect(user.match(/export const add = 1;/g)).toHaveLength(1);
+      expect(postedMessages.find((m) => m.type === 'streamComplete').footer).toContain('read src/b.ts');
+    });
+
+    it('says when an @ mention matches no file, but not for things like decorators', async () => {
+      await provider.handleUserMessage('look at @nope.ts and @Component');
+      expect(postedMessages).toContainEqual(
+        expect.objectContaining({ type: 'systemMessage', text: "Couldn't find @nope.ts in this workspace, so it was not sent." })
+      );
     });
 
     it('asks for a file when no editor is open to insert into', async () => {

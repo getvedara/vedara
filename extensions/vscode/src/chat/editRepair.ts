@@ -136,10 +136,59 @@ function cleanFileLine(line: string): string {
 }
 
 export function repairEditBlocks(reply: string, defaultFile?: string, fileText?: string): RepairedReply {
+  reply = unwrapEditsInCode(reply, fileText);
   const strict = repairLooseBlocks(reply, defaultFile, fileText);
   if (strict.edits > 0 && fileText !== undefined) return { ...strict, text: dropFileEchoes(strict.text, fileText) };
   if (strict.edits + strict.noOps > 0 || fileText === undefined) return strict;
   return editFromWholeFileAnswer(reply, defaultFile, fileText) ?? strict;
+}
+
+const FENCED_WITH_LANG = /^[ \t]*(`{3,})([\w+#.-]*)[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*\1[ \t]*$/gm;
+
+/**
+ * qwen2.5-coder:3b sometimes types out the file in a code block and puts an edit block in the
+ * middle of it, then carries on with the rest of the file. Rendered as is, the code around the edit
+ * falls apart into plain text. When the code block, with each edit replaced by its new lines, is
+ * the whole file, it becomes that new file (and so one edit of just the change, below). Otherwise
+ * the code block is split around its edits: code, the edit, code.
+ */
+function unwrapEditsInCode(reply: string, fileText?: string): string {
+  const original = fileText?.replace(/\r\n/g, '\n').split('\n');
+  return reply.replace(FENCED_WITH_LANG, (fence: string, ticks: string, lang: string, body: string) => {
+    const lines = body.replace(/\r\n/g, '\n').split('\n');
+    const blocks = findEditBlocks(lines);
+    if (blocks.length === 0) return fence;
+    const inBlock = (k: number) => blocks.some((b) => k >= b.start && k <= b.end);
+    if (!lines.some((l, k) => !inBlock(k) && l.trim() && !/^\s*FILE:/i.test(l))) return fence;
+
+    const asNewFile: string[] = [];
+    lines.forEach((l, k) => {
+      const b = blocks.find((x) => x.start === k);
+      if (b) asNewFile.push(...(b.replace ? b.replace.split('\n') : []));
+      else if (!inBlock(k)) asNewFile.push(l);
+    });
+    if (original && wholeFileScore(asNewFile, original) !== undefined) {
+      return `${ticks}${lang}\n${asNewFile.join('\n')}\n${ticks}`;
+    }
+
+    const parts: string[] = [];
+    let code: string[] = [];
+    const flush = () => {
+      if (code.some((l) => l.trim())) parts.push(`${ticks}${lang}\n${trimBlankLines(code).join('\n')}\n${ticks}`);
+      code = [];
+    };
+    lines.forEach((l, k) => {
+      const b = blocks.find((x) => x.start === k);
+      if (b) {
+        flush();
+        parts.push(lines.slice(b.start, b.end + 1).join('\n'));
+      } else if (!inBlock(k)) {
+        code.push(l);
+      }
+    });
+    flush();
+    return parts.join('\n\n');
+  });
 }
 
 export interface OrganizedEdits {
@@ -148,6 +197,8 @@ export interface OrganizedEdits {
   merged: number;
   /** 0-based positions, among the edit blocks in `text`, of edits that don't match the file. */
   unmatched: number[];
+  /** Positions of edits that apply but leave `{`, `(` or `[` unbalanced: the result likely won't compile. */
+  unbalanced: number[];
 }
 
 const EDIT_START = /^\s*<{7}\s*SEARCH/;
@@ -160,13 +211,17 @@ const EDIT_END = /^\s*>{7}\s*REPLACE/;
 const FORMAT_LEAD_IN = /^[^\n<>=]{0,60}\bsearch\s*\/\s*replace\b[^\n<>=]{0,60}$/i;
 
 interface EditBlock {
-  /** First line of the block (its FILE line, when one comes straight before it). */
+  /** First line of the block (its FILE line, when one comes before it). */
   start: number;
+  /** The `<<<<<<< SEARCH` line. */
+  searchAt: number;
   /** The `>>>>>>> REPLACE` line. */
   end: number;
   file?: string;
   search: string;
   replace: string;
+  /** The block's lines when it was made here (a piece of a split edit) rather than read from the reply. */
+  text?: string[];
 }
 
 function findEditBlocks(lines: string[]): EditBlock[] {
@@ -189,6 +244,7 @@ function findEditBlocks(lines: string[]): EditBlock[] {
     while (above >= 0 && !lines[above].trim()) above--;
     blocks.push({
       start: above >= 0 && /^\s*FILE:/i.test(lines[above]) ? above : i,
+      searchAt: i,
       end,
       file,
       search: lines.slice(i + 1, sep).join('\n'),
@@ -205,6 +261,110 @@ function changesBracketBalance(search: string, replace: string): boolean {
   return ['{}', '()', '[]'].some(
     ([open, close]) => count(search, open) - count(search, close) !== count(replace, open) - count(replace, close)
   );
+}
+
+type LineOp = { kind: 'same' | 'del' | 'add'; line: string };
+
+/** Line diff between two blocks of text (longest common subsequence; removed lines first on ties). */
+function lineOps(a: string[], b: string[]): LineOp[] {
+  const w = b.length + 1;
+  const lcs = new Uint32Array((a.length + 1) * w);
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i * w + j] = a[i] === b[j] ? lcs[(i + 1) * w + j + 1] + 1 : Math.max(lcs[(i + 1) * w + j], lcs[i * w + j + 1]);
+    }
+  }
+  const ops: LineOp[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      ops.push({ kind: 'same', line: a[i++] });
+      j++;
+    } else if (i < a.length && (j >= b.length || lcs[(i + 1) * w + j] >= lcs[i * w + j + 1])) {
+      ops.push({ kind: 'del', line: a[i++] });
+    } else {
+      ops.push({ kind: 'add', line: b[j++] });
+    }
+  }
+  return ops;
+}
+
+/** Unchanged lines that separate two changes in one edit enough to make them separate edits. */
+const SPLIT_GAP = 3;
+
+/**
+ * One edit holding separate changes with unchanged code between them (qwen2.5-coder:3b asked to add
+ * `removeUser` also "fixes" `findUser` in the same edit) becomes one edit per change, so the reader
+ * can apply one without the other. Each piece gets a little context, grown until it matches one
+ * place in the file. The edit stays whole unless every piece applies on its own, keeps brackets
+ * balanced, and the pieces together give exactly what the whole edit gives.
+ */
+function splitEdit(b: EditBlock, original: string, file: string): EditBlock[] | undefined {
+  const search = b.search.split('\n');
+  const replace = b.replace.split('\n');
+  if (search.length * replace.length > 250_000) return undefined;
+  const ops = lineOps(search, replace);
+
+  const runs: Array<[number, number]> = [];
+  ops.forEach((op, k) => {
+    if (op.kind === 'same') return;
+    const last = runs[runs.length - 1];
+    if (last && k - last[1] - 1 < SPLIT_GAP) last[1] = k;
+    else runs.push([k, k]);
+  });
+  if (runs.length < 2) return undefined;
+
+  const pieces: Array<{ search: string; replace: string }> = [];
+  for (let g = 0; g < runs.length; g++) {
+    // Neighbouring pieces share the unchanged lines between them at the midpoint, so they never overlap.
+    const minIdx = g === 0 ? 0 : Math.floor((runs[g - 1][1] + runs[g][0]) / 2) + 1;
+    const maxIdx = g === runs.length - 1 ? ops.length - 1 : Math.floor((runs[g][1] + runs[g + 1][0]) / 2);
+    let piece: { search: string; replace: string } | undefined;
+    for (let context = 1; ; context++) {
+      const from = Math.max(minIdx, runs[g][0] - context);
+      const to = Math.min(maxIdx, runs[g][1] + context);
+      const slice = ops.slice(from, to + 1);
+      const s = slice.filter((o) => o.kind !== 'add').map((o) => o.line);
+      const r = slice.filter((o) => o.kind !== 'del').map((o) => o.line);
+      if (s.some((l) => l.trim()) && applies(original, s, r)) {
+        piece = { search: s.join('\n'), replace: r.join('\n') };
+        break;
+      }
+      if (from === minIdx && to === maxIdx) break;
+    }
+    if (!piece || changesBracketBalance(piece.search, piece.replace)) return undefined;
+    pieces.push(piece);
+  }
+
+  // A piece that uses something another piece adds (a `validateUser` helper declared in one and
+  // called in another) can't be applied without it.
+  const added = pieces.map((p) => {
+    const before = new Set(p.search.split('\n'));
+    return p.replace.split('\n').filter((l) => !before.has(l)).join('\n');
+  });
+  const declared = added.map((text) => [
+    ...text.matchAll(/\b(?:function|class|interface|type|enum|const|let|var|def)\s+([A-Za-z_$][\w$]*)/g),
+  ].map((m) => m[1]));
+  const usesAnother = declared.some((names, k) =>
+    names.some((name) => added.some((text, j) => j !== k && new RegExp(`(^|[^\\w$])${name.replace(/\$/g, '\\$')}([^\\w$]|$)`).test(text)))
+  );
+  if (usesAnother) return undefined;
+
+  const whole = applyHunks(original, [{ id: 'whole', search: b.search, replace: b.replace }]);
+  const split = applyHunks(original, pieces.map((p, k) => ({ id: `piece-${k}`, ...p })));
+  if (!whole.allApplied || !split.allApplied || split.modifiedContent !== whole.modifiedContent) return undefined;
+
+  const name = b.file ?? file;
+  return pieces.map((p, k) => ({
+    start: b.start,
+    searchAt: b.searchAt,
+    end: b.end,
+    file: b.file,
+    search: p.search,
+    replace: p.replace,
+    text: [...(k > 0 ? [''] : []), `FILE: ${name}`, '<<<<<<< SEARCH', p.search, '=======', p.replace, '>>>>>>> REPLACE'],
+  }));
 }
 
 function samePath(a: string, b: string): boolean {
@@ -225,14 +385,15 @@ function samePath(a: string, b: string): boolean {
  */
 export function organizeEdits(reply: string, file: string, fileText: string): OrganizedEdits {
   const lines = reply.split(/\r?\n/).filter((l) => !FORMAT_LEAD_IN.test(l));
-  const blocks = findEditBlocks(lines);
-  const tidy = (out: string[]) => out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  if (blocks.length === 0) return { text: tidy(lines), merged: 0, unmatched: [] };
-
   const original = fileText.replace(/\r\n/g, '\n');
+  const forThisFile = (b: EditBlock) => !b.file || b.file === 'untitled' || samePath(b.file, file);
+  const blocks = findEditBlocks(lines).flatMap((b) => (forThisFile(b) && splitEdit(b, original, file)) || [b]);
+  const tidy = (out: string[]) => out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (blocks.length === 0) return { text: tidy(lines), merged: 0, unmatched: [], unbalanced: [] };
+
   let current = original;
   const status = blocks.map((b) => {
-    if (b.file && b.file !== 'untitled' && !samePath(b.file, file)) return 'other';
+    if (!forThisFile(b)) return 'other';
     const hunk = { id: 'check', search: b.search, replace: b.replace };
     const alone = applyHunks(original, [hunk]).allApplied;
     const inOrder = applyHunks(current, [hunk]);
@@ -246,13 +407,18 @@ export function organizeEdits(reply: string, file: string, fileText: string): Or
   const applying = blocks.filter((_, k) => status[k] === 'applies' || status[k] === 'chained');
   const partial = applying.some((b) => changesBracketBalance(b.search, b.replace));
   let combined: string[] | undefined;
+  let combinedUnbalanced = false;
   if (applying.length >= 2 && (status.includes('chained') || partial)) {
     const hunk = minimalHunk(original.split('\n'), current.split('\n'));
-    if (hunk) combined = [`FILE: ${file}`, '<<<<<<< SEARCH', ...hunk.search, '=======', ...hunk.replace, '>>>>>>> REPLACE'];
+    if (hunk) {
+      combined = [`FILE: ${file}`, '<<<<<<< SEARCH', ...hunk.search, '=======', ...hunk.replace, '>>>>>>> REPLACE'];
+      combinedUnbalanced = changesBracketBalance(hunk.search.join('\n'), hunk.replace.join('\n'));
+    }
   }
 
   const out: string[] = [];
   const unmatched: number[] = [];
+  const unbalanced: number[] = [];
   let merged = 0;
   let placed = false;
   let index = 0;
@@ -265,11 +431,15 @@ export function organizeEdits(reply: string, file: string, fileText: string): Or
         merged++;
         return;
       }
+      if (combinedUnbalanced) unbalanced.push(index);
       out.push(...combined);
       placed = true;
     } else {
       if (status[k] === 'unmatched') unmatched.push(index);
-      out.push(...lines.slice(b.start, b.end + 1));
+      else if (status[k] !== 'other' && changesBracketBalance(b.search, b.replace)) unbalanced.push(index);
+      // A FILE line goes straight above its edit, or the card doesn't pick it up.
+      const own = b.start < b.searchAt ? [lines[b.start], ...lines.slice(b.searchAt, b.end + 1)] : lines.slice(b.start, b.end + 1);
+      out.push(...(b.text ?? own));
     }
     index++;
   });
@@ -280,7 +450,7 @@ export function organizeEdits(reply: string, file: string, fileText: string): Or
     return out[k] ?? '';
   };
   const kept = out.filter((l, k) => !/^\s*FILE:/i.test(l) || EDIT_START.test(nextCode(k + 1)));
-  return { text: tidy(kept), merged, unmatched };
+  return { text: tidy(kept), merged, unmatched, unbalanced };
 }
 
 /**

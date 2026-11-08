@@ -123,7 +123,7 @@ export async function dryRunMultiFilePatch(
  */
 export async function applyMultiFilePatch(
   rawDiffText: string,
-  description = 'Apply Frugal Diff',
+  description = 'Apply edit',
   contentGetter?: (uri: vscode.Uri) => Promise<string>
 ): Promise<{
   success: boolean;

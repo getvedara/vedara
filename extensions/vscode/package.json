@@ -84,12 +84,12 @@
       },
       {
         "command": "vedara.applyFrugalDiff",
-        "title": "Vedara: Apply Frugal Diff Patch",
+        "title": "Vedara: Apply Edit from Selection or Clipboard",
         "category": "Vedara"
       },
       {
         "command": "vedara.previewFrugalDiff",
-        "title": "Vedara: Preview Frugal Diff (Side-by-Side)",
+        "title": "Vedara: Preview Edit from Selection or Clipboard",
         "category": "Vedara"
       },
       {

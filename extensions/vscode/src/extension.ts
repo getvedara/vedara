@@ -24,6 +24,8 @@ let nextEditController: NextEditController | null = null;
  * Extension entrypoint: activated when VS Code finishes initialization.
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // Rollback history survives restarts: outside git it is the only undo for AI edits.
+  if (context.workspaceState) DiffHistoryManager.getInstance().attachStorage(context.workspaceState);
   // The API key for an OpenAI-compatible server lives in VS Code's secret storage, not settings.
   setStoredApiKey(await Promise.resolve(context.secrets?.get(API_KEY_SECRET)).catch(() => undefined));
   context.subscriptions.push(
@@ -143,7 +145,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const diffText = await getDiffInput();
       if (!diffText.trim()) {
         vscode.window.showWarningMessage(
-          'Vedara: No diff found in active selection or clipboard to preview.'
+          'Vedara: No edit (SEARCH/REPLACE block) found in the selection or clipboard to preview.'
         );
         return;
       }
@@ -185,7 +187,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const diffText = await getDiffInput();
       if (!diffText.trim()) {
         vscode.window.showWarningMessage(
-          'Vedara: No frugal diff block found in selection or clipboard.'
+          'Vedara: No edit (SEARCH/REPLACE block) found in the selection or clipboard.'
         );
         return;
       }
@@ -209,7 +211,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const rollbackLastDiffCommand = vscode.commands.registerCommand(
     'vedara.rollbackLastDiff',
     async () => {
-      const result = await DiffHistoryManager.getInstance().rollbackLastSession();
+      const history = DiffHistoryManager.getInstance();
+      if (!history.peekSession()) {
+        vscode.window.showInformationMessage(
+          'Vedara: Nothing to roll back. No AI edit has been applied since the last rollback.'
+        );
+        return;
+      }
+      const changed = await history.filesChangedSinceLastSession();
+      if (changed.length > 0) {
+        const choice = await vscode.window.showWarningMessage(
+          `Vedara: ${changed.join(', ')} changed after the last AI edit. Rolling back restores ` +
+            'the file as it was before that edit, so the later changes will be lost.',
+          { modal: true },
+          'Roll Back Anyway'
+        );
+        if (choice !== 'Roll Back Anyway') return;
+      }
+      const result = await history.rollbackLastSession();
       if (result.success) {
         vscode.window.showInformationMessage(
           `Vedara: Rolled back ${result.rolledBackFiles.length} file(s) to pre-patch state: ${result.rolledBackFiles.join(', ')}`

@@ -8,9 +8,16 @@ vi.mock('vscode', () => {
     constructor(public start: MockPosition, public end: MockPosition) {}
   }
   class MockUri {
-    constructor(public fsPath: string) {}
+    constructor(public fsPath: string, public scheme = 'file') {}
     static file(path: string): MockUri {
       return new MockUri(path);
+    }
+    static parse(value: string): MockUri {
+      const [scheme, rest] = value.split('://');
+      return new MockUri(rest, scheme);
+    }
+    toString(): string {
+      return `${this.scheme}://${this.fsPath}`;
     }
   }
 
@@ -35,7 +42,7 @@ vi.mock('vscode', () => {
   };
 });
 
-import { DiffHistoryManager, PatchSession } from './diffHistory';
+import { DiffHistoryManager, HISTORY_STATE_KEY, PatchSession } from './diffHistory';
 import * as vscode from 'vscode';
 
 describe('VS Code Extension - DiffHistoryManager', () => {
@@ -117,5 +124,49 @@ describe('VS Code Extension - DiffHistoryManager', () => {
     expect(res.rolledBackFiles).toContain('src/config.json');
     expect(manager.count).toBe(0);
     expect(vscode.workspace.applyEdit).toHaveBeenCalled();
+  });
+
+  it('keeps the history across a restart, leaving out unsaved buffers', async () => {
+    const store = new Map<string, unknown>();
+    const memento = {
+      keys: () => [...store.keys()],
+      get: (key: string, dflt?: unknown) => (store.has(key) ? store.get(key) : dflt),
+      update: async (key: string, value: unknown) => void store.set(key, JSON.parse(JSON.stringify(value))),
+    };
+    manager.attachStorage(memento as any);
+    manager.pushSession({
+      id: 'sess-saved',
+      timestamp: 1,
+      description: 'Applied via Vedara Chat',
+      files: [
+        { filePath: 'src/a.ts', uri: vscode.Uri.file('/root/src/a.ts'), beforeContent: 'old', afterContent: 'new' },
+        { filePath: 'Untitled-1', uri: new (vscode.Uri as any)('Untitled-1', 'untitled'), beforeContent: 'x', afterContent: 'y' },
+      ],
+    });
+
+    // A new window: a fresh manager reading the same workspace state.
+    (DiffHistoryManager as any).instance = null;
+    const restarted = DiffHistoryManager.getInstance();
+    restarted.attachStorage(memento as any);
+    expect(restarted.count).toBe(1);
+    const [file] = restarted.peekSession()!.files;
+    expect(restarted.peekSession()!.files).toHaveLength(1);
+    expect(file.uri.fsPath).toBe('/root/src/a.ts');
+    expect((await restarted.rollbackLastSession()).success).toBe(true);
+    expect(store.get(HISTORY_STATE_KEY)).toEqual([]);
+    manager = restarted;
+  });
+
+  it('reports files that changed after the edit, so rollback can ask first', async () => {
+    manager.pushSession({
+      id: 'sess-changed',
+      timestamp: 1,
+      description: 'edit',
+      files: [{ filePath: 'src/a.ts', uri: vscode.Uri.file('/root/src/a.ts'), beforeContent: 'old', afterContent: 'new\n' }],
+    });
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValueOnce({ getText: () => 'new\r\n' } as any);
+    expect(await manager.filesChangedSinceLastSession()).toEqual([]);
+    vi.mocked(vscode.workspace.openTextDocument).mockResolvedValueOnce({ getText: () => 'new\nmore by hand\n' } as any);
+    expect(await manager.filesChangedSinceLastSession()).toEqual(['src/a.ts']);
   });
 });

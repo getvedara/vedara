@@ -175,6 +175,17 @@ test('chat insert: a code block goes in at the cursor with the chat focused, and
   await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
 });
 
+test('chat @ mentions: the workspace file list has the files, without .git or dependencies', async () => {
+  fs.mkdirSync(path.join(workspace, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'src', 'mentioned.ts'), 'export const m = 1;\n');
+  fs.mkdirSync(path.join(workspace, 'node_modules', 'dep'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'node_modules', 'dep', 'index.js'), 'module.exports = 1;\n');
+  const { ChatViewProvider } = extensionModule('chat/chatViewProvider.js');
+  const files = [...(await new ChatViewProvider(vscode.Uri.file(__dirname)).listWorkspaceFiles()).keys()];
+  assert.ok(files.includes('src/mentioned.ts'), `listed: ${files.join(', ')}`);
+  assert.ok(!files.some((f) => f.startsWith('.git/') || f.includes('node_modules/')), `listed: ${files.join(', ')}`);
+});
+
 test('organization policy: routes to an OpenAI-compatible team server and blocks other hosts', async () => {
   const policyFile = /** @type {string} */ (process.env.VEDARA_POLICY_FILE);
   const { getServerConfig } = extensionModule('server/serverConfig.js');

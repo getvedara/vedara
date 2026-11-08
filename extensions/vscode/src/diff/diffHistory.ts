@@ -14,20 +14,58 @@ export interface PatchSession {
   files: FilePatchSnapshot[];
 }
 
+/** Workspace-state key the history is saved under. */
+export const HISTORY_STATE_KEY = 'vedara.diffHistory';
+/** Sessions bigger than this (old plus new contents) stay in memory only, to keep workspace state small. */
+const MAX_SAVED_SESSION_CHARS = 2_000_000;
+
+interface SavedSession {
+  id: string;
+  timestamp: number;
+  description: string;
+  files: Array<{ filePath: string; uri: string; beforeContent: string; afterContent: string }>;
+}
+
 /**
- * Manages an in-memory bounded history stack of applied diff patches.
- * Enables 1-click rollback of all modified files to their pre-patch contents.
+ * A bounded history stack of applied edits, for one-click rollback of all modified files to their
+ * contents before the edit. Once storage is attached, the history is saved in the workspace's state,
+ * so rollback still works after VS Code restarts (files outside a git repository have no other undo).
+ * Unsaved buffers are left out of the saved copy: they don't survive a restart.
  */
 export class DiffHistoryManager {
   private static instance: DiffHistoryManager | null = null;
   private sessions: PatchSession[] = [];
   private readonly maxSessions = 20;
+  private storage: vscode.Memento | undefined;
 
   public static getInstance(): DiffHistoryManager {
     if (!DiffHistoryManager.instance) {
       DiffHistoryManager.instance = new DiffHistoryManager();
     }
     return DiffHistoryManager.instance;
+  }
+
+  /** Loads the saved history and keeps saving it from now on. */
+  public attachStorage(storage: vscode.Memento): void {
+    this.storage = storage;
+    const saved = storage.get<SavedSession[]>(HISTORY_STATE_KEY, []);
+    const restored: PatchSession[] = saved.map((s) => ({
+      ...s,
+      files: s.files.map((f) => ({ ...f, uri: vscode.Uri.parse(f.uri) })),
+    }));
+    this.sessions = [...restored, ...this.sessions].slice(-this.maxSessions);
+  }
+
+  private save(): void {
+    if (!this.storage) return;
+    const saved: SavedSession[] = [];
+    for (const s of this.sessions) {
+      const files = s.files.filter((f) => !f.uri.scheme || f.uri.scheme === 'file');
+      const size = files.reduce((n, f) => n + f.beforeContent.length + f.afterContent.length, 0);
+      if (files.length === 0 || size > MAX_SAVED_SESSION_CHARS) continue;
+      saved.push({ ...s, files: files.map((f) => ({ ...f, uri: f.uri.toString() })) });
+    }
+    void this.storage.update(HISTORY_STATE_KEY, saved);
   }
 
   /**
@@ -38,6 +76,7 @@ export class DiffHistoryManager {
     if (this.sessions.length > this.maxSessions) {
       this.sessions.shift();
     }
+    this.save();
   }
 
   /**
@@ -51,7 +90,9 @@ export class DiffHistoryManager {
    * Removes and returns the most recent patch session.
    */
   public popSession(): PatchSession | undefined {
-    return this.sessions.pop();
+    const session = this.sessions.pop();
+    this.save();
+    return session;
   }
 
   /**
@@ -104,7 +145,7 @@ export class DiffHistoryManager {
       const applied = await vscode.workspace.applyEdit(edit);
       if (!applied) {
         // Put session back if applyEdit fails
-        this.sessions.push(session);
+        this.pushSession(session);
         return {
           success: false,
           rolledBackFiles: [],
@@ -117,7 +158,7 @@ export class DiffHistoryManager {
         rolledBackFiles,
       };
     } catch (err: unknown) {
-      this.sessions.push(session);
+      this.pushSession(session);
       const msg = err instanceof Error ? err.message : String(err);
       return {
         success: false,
@@ -128,9 +169,30 @@ export class DiffHistoryManager {
   }
 
   /**
+   * Files of the last session that changed after the edit was applied. Rolling back restores their
+   * contents from before the edit, so those later changes would be lost.
+   */
+  public async filesChangedSinceLastSession(): Promise<string[]> {
+    const session = this.peekSession();
+    if (!session) return [];
+    const changed: string[] = [];
+    for (const file of session.files) {
+      try {
+        const doc = await vscode.workspace.openTextDocument(file.uri);
+        const now = doc.getText().replace(/\r\n/g, '\n');
+        if (now !== file.afterContent.replace(/\r\n/g, '\n')) changed.push(file.filePath);
+      } catch {
+        // A file that no longer opens is reported by the rollback itself.
+      }
+    }
+    return changed;
+  }
+
+  /**
    * Clears the entire rollback history stack.
    */
   public clear(): void {
     this.sessions = [];
+    this.save();
   }
 }

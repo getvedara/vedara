@@ -37,22 +37,25 @@ the load time. Latency depends on your hardware and model.
 ### Chat in the sidebar
 Ask questions, get explanations, or request changes to the file you're working on. Chat remembers the
 conversation and sees the open file: all of it when it's small, or the part around your cursor or
-selection when it's large. Answers stream in the Vedara sidebar, with the model and its speed underneath.
-The chat panel loads nothing from the internet.
+selection when it's large. Type `@` to add another file from the workspace to your message. Answers
+stream in the Vedara sidebar, with the model and its speed underneath. The chat panel loads nothing from
+the internet.
 
 Right-click a selection for quick actions: **Explain**, **Refactor**, **Generate Tests** and **Fix Bugs**.
 
 ### Reviewed, multi-file edits
-When you ask for a change, the model replies with `SEARCH / REPLACE` blocks. Click **Preview Diff** to see
-the change side by side, then **Apply Diff** to write it. Blocks that match more than one place, or none,
-are rejected with a reason rather than applied.
+When you ask for a change, the answer shows it as a diff, removed lines in red and added lines in green.
+Click **Preview Diff** to see the change side by side, then **Apply Diff** to write it. Edits that match
+more than one place, or none, are rejected with a reason rather than applied. New code in an answer has
+**Insert into File**, which puts it at the cursor.
 
 ### Checkpoints and undo
 - **Vedara: Show Checkpoints** lists the snapshots taken before each AI edit and restores any of them.
   Restoring also removes files the AI created after that point.
 - Snapshots live under `refs/ai-checkpoints/` in your repository and never appear in your branch history.
-- Outside a git repository, **Vedara: Rollback Last Applied Diff** undoes the most recent edits from an
-  in-memory history.
+- Outside a git repository, **Vedara: Rollback Last Applied Diff** undoes the most recent edits from a
+  history of the last 20, which is kept across restarts. If a file changed after the edit, it asks before
+  rolling back.
 
 ### Next-edit prediction (experimental, off by default)
 Vedara can predict the next change you're about to make, based on your recent edits, using the open
@@ -158,8 +161,8 @@ instructions for running it on your own hardware are in
 - Local models are less capable than the largest cloud models. Review every edit before applying it.
 - With less than 6 GB of GPU memory, chat edits are best-effort (see [Choosing models](#choosing-models)).
 - Next-edit prediction is experimental and off by default.
-- Checkpoints need a git repository; elsewhere, undo uses an in-memory history that's lost when VS Code
-  closes.
+- Checkpoints need a git repository; elsewhere, undo uses a history of the last 20 edits, saved with the
+  workspace. Edits to unsaved files can only be undone until VS Code closes.
 
 ## Commands
 
@@ -171,8 +174,8 @@ instructions for running it on your own hardware are in
 | Vedara: Set Server API Key | Store the API key for an OpenAI-compatible server |
 | Vedara: Import Continue Settings | Bring over models from Continue |
 | Vedara: Trigger Local AI Autocomplete | Request a completion now |
-| Vedara: Preview Frugal Diff (Side-by-Side) | Preview `SEARCH / REPLACE` blocks from the selection |
-| Vedara: Apply Frugal Diff Patch | Apply `SEARCH / REPLACE` blocks from the selection |
+| Vedara: Preview Edit from Selection or Clipboard | Preview `SEARCH / REPLACE` blocks from the selection or clipboard, side by side |
+| Vedara: Apply Edit from Selection or Clipboard | Apply `SEARCH / REPLACE` blocks from the selection or clipboard |
 | Vedara: Show Checkpoints | List and restore snapshots taken before AI edits |
 | Vedara: Rollback Last Applied Diff | Undo the last applied edit |
 | Vedara: Explain / Refactor / Generate Tests / Fix Bugs | Act on the selected code |

@@ -81,7 +81,7 @@ describe('organizeEdits', () => {
       '',
       block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;'),
     ].join('\n');
-    expect(organizeEdits(reply, 'store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [] });
+    expect(organizeEdits(reply, 'store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [], unbalanced: [] });
   });
 
   it('drops format headings and stray FILE lines (qwen2.5-coder:3b: one heading per edit)', () => {
@@ -100,18 +100,165 @@ describe('organizeEdits', () => {
       'Here are the SEARCH/REPLACE edits to make:',
     ].join('\n');
     const r = organizeEdits(reply, 'store.ts', file);
-    expect(r.text).toBe(['Here is the change:', '', 'FILE: store.ts', '', block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;')].join('\n'));
+    expect(r.text).toBe(['Here is the change:', '', 'FILE: store.ts', block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;')].join('\n'));
+  });
+
+  it('splits one edit holding separate changes into one card per change (qwen2.5-coder:3b, removeUser)', () => {
+    const store = lines(
+      "import { readFileSync, writeFileSync } from 'fs';",
+      '',
+      'export function saveUsers(file: string, users: User[]): void {',
+      '  writeFileSync(file, JSON.stringify(users, null, 2));',
+      '}',
+      '',
+      'export function findUser(users: User[], id: number): User {',
+      '  return users.find((u) => u.id === id)!;',
+      '}',
+      '',
+      'export function averageNameLength(users: User[]): number {',
+      '  const total = users.reduce((sum, u) => sum + u.name.length, 0);',
+      '  return total / users.length;',
+      '}',
+      ''
+    );
+    const tail = store.split('\n').slice(4, 14);
+    const changed = [...tail];
+    changed[3] = '  return users.find((u) => u.id === id);';
+    changed.push('', 'export function removeUser(users: User[], id: number): User[] {', '  return users.filter((u) => u.id !== id);', '}');
+    const reply = ['Here you go:', '', 'FILE: userStore.ts', block(tail.join('\n'), changed.join('\n'))].join('\n');
+
+    const r = organizeEdits(reply, 'userStore.ts', store);
+    const cards = parseFrugalDiff(r.text).flatMap((d) => d.hunks);
+    expect(cards).toHaveLength(2);
+    expect(cards[0].search).toContain('return users.find((u) => u.id === id)!;');
+    expect(cards[0].replace).not.toContain('removeUser');
+    expect(cards[1].replace).toContain('export function removeUser');
+    expect(cards[1].replace).not.toContain('u.id === id);');
+    // Each applies on its own, so removeUser can be added without the findUser change.
+    const withRemoveOnly = applyHunks(store, [cards[1]]);
+    expect(withRemoveOnly.allApplied).toBe(true);
+    expect(withRemoveOnly.modifiedContent).toContain('u.id === id)!;');
+    expect(withRemoveOnly.modifiedContent.trimEnd().endsWith('return users.filter((u) => u.id !== id);\n}')).toBe(true);
+    expect(r.text.match(/^FILE: userStore\.ts$/gm)).toHaveLength(2);
+  });
+
+  it('keeps an edit whole when one change uses something another adds (qwen2.5-coder:3b: a validateUser helper)', () => {
+    const src = lines('function a() {', '  return 1;', '}', '', 'function b() {', '  return 2;', '}', '', 'function c() {', '  return 3;', '}', '');
+    const out = lines(
+      'function check(x) {',
+      '  if (!x) throw new Error();',
+      '}',
+      '',
+      'function a() {',
+      '  return 1;',
+      '}',
+      '',
+      'function b() {',
+      '  return 2;',
+      '}',
+      '',
+      'function c() {',
+      '  check(3);',
+      '  return 3;',
+      '}'
+    );
+    const reply = ['FILE: x.ts', block(src.trimEnd(), out)].join('\n');
+    expect(parseFrugalDiff(organizeEdits(reply, 'x.ts', src).text).flatMap((d) => d.hunks)).toHaveLength(1);
+  });
+
+  it('keeps an edit whole when its pieces would not stand alone (a try wrapped around unchanged code)', () => {
+    const body = lines('function run() {', '  a();', '  b();', '  c();', '  d();', '}', '');
+    const wrapped = lines('function run() {', '  try {', '  a();', '  b();', '  c();', '  d();', '  } finally {}', '}');
+    const reply = ['FILE: run.ts', block(body.trimEnd(), wrapped)].join('\n');
+    const r = organizeEdits(reply, 'run.ts', body);
+    expect(parseFrugalDiff(r.text).flatMap((d) => d.hunks)).toHaveLength(1);
+  });
+
+  it('warns about an edit that drops a closing brace (qwen2.5-coder:3b: `return … as User[];` without its `}`)', () => {
+    const reply = ['FILE: store.ts', block(lines('  return JSON.parse(text);', '}'), '  return JSON.parse(text) as unknown;')].join('\n');
+    const r = organizeEdits(reply, 'store.ts', file);
+    expect(r.unbalanced).toEqual([0]);
+    expect(r.unmatched).toEqual([]);
+  });
+
+  it('puts a FILE line straight above its edit, even when the model left a blank line between', () => {
+    const reply = ['Change:', '', 'FILE: store.ts', '', block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;')].join('\n');
+    const r = organizeEdits(reply, 'store.ts', file);
+    expect(r.text).toBe(['Change:', '', 'FILE: store.ts', block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;')].join('\n'));
   });
 
   it('leaves a single edit as it is', () => {
     const reply = ['FILE: store.ts', block('  return JSON.parse(text);', '  return JSON.parse(text) as unknown;')].join('\n');
-    expect(organizeEdits(reply, 'store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [] });
+    expect(organizeEdits(reply, 'store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [], unbalanced: [] });
   });
 
   it('leaves edits to other files alone', () => {
     const reply = ['FILE: other.ts', block('const a = 1;', 'const a = 2;')].join('\n');
-    expect(organizeEdits(reply, 'src/store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [] });
+    expect(organizeEdits(reply, 'src/store.ts', file)).toEqual({ text: reply, merged: 0, unmatched: [], unbalanced: [] });
     expect(organizeEdits(reply, 'other.ts', file).unmatched).toEqual([0]);
+  });
+});
+
+describe('edits written inside a copy of the code', () => {
+  const store = lines(
+    "import { readFileSync, writeFileSync } from 'fs';",
+    '',
+    'export function loadUsers(file: string): User[] {',
+    "  const text = readFileSync(file, 'utf8');",
+    '  return JSON.parse(text);',
+    '}',
+    '',
+    'export function saveUsers(file: string, users: User[]): void {',
+    '  writeFileSync(file, JSON.stringify(users, null, 2));',
+    '}',
+    ''
+  );
+
+  it('turns a file copy with an edit in the middle into one edit of the change (qwen2.5-coder:3b)', () => {
+    const reply = [
+      "Here's how you can modify the code:",
+      '',
+      '```typescript',
+      "import { readFileSync, writeFileSync } from 'fs';",
+      '',
+      'export function loadUsers(file: string): User[] {',
+      '<<<<<<< SEARCH',
+      "  const text = readFileSync(file, 'utf8');",
+      '=======',
+      '  try {',
+      "    const text = readFileSync(file, 'utf8');",
+      '>>>>>>> REPLACE',
+      '  } catch (error) {',
+      '    return [];',
+      '  }',
+      '  return JSON.parse(text);',
+      '}',
+      '',
+      'export function saveUsers(file: string, users: User[]): void {',
+      '  writeFileSync(file, JSON.stringify(users, null, 2));',
+      '}',
+      '```',
+    ].join('\n');
+    const r = repairEditBlocks(reply, 'userStore.ts', store);
+    expect(r.edits).toBe(1);
+    expect(r.text).not.toContain('```');
+    const hunks = parseFrugalDiff(r.text).flatMap((d) => d.hunks);
+    expect(hunks).toHaveLength(1);
+    expect(applyHunks(store, hunks).modifiedContent).toContain("  try {\n    const text = readFileSync(file, 'utf8');\n  } catch (error) {");
+    expect(r.text).not.toContain('saveUsers');
+  });
+
+  it('splits a code block around an edit when the code is not the whole file', () => {
+    const reply = ['```ts', 'function a() {', '<<<<<<< SEARCH', '  return 1;', '=======', '  return 2;', '>>>>>>> REPLACE', '}', '```'].join('\n');
+    const r = repairEditBlocks(reply, 'a.ts', store);
+    expect(r.text).toBe(
+      ['```ts', 'function a() {', '```', '', 'FILE: a.ts', '<<<<<<< SEARCH', '  return 1;', '=======', '  return 2;', '>>>>>>> REPLACE', '', '```ts', '}', '```'].join('\n')
+    );
+  });
+
+  it('leaves an edit that is only wrapped in a fence alone', () => {
+    const reply = ['```ts', 'FILE: a.ts', '<<<<<<< SEARCH', 'a', '=======', 'b', '>>>>>>> REPLACE', '```'].join('\n');
+    expect(repairEditBlocks(reply, 'a.ts').edits).toBe(1);
   });
 });
 

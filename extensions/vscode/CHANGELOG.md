@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- **`@` mentions in chat.** Type `@` to pick a workspace file; it's sent to the model with your message,
+  next to the open file (the two share the space the open file had, so prompts still fit). Edits can name
+  the mentioned file. The answer's footer lists the files read, and a mention that matches no file says
+  so. Dependencies and build output (`node_modules`, `dist`, `.git`, …) aren't offered.
+- **One edit with separate changes becomes one card per change.** Asked to add `removeUser`, small
+  models also "fix" `findUser` in the same edit; now each change has its own card, so you can apply one
+  without the other. An edit is only split when every piece stands on its own: brackets balanced, a
+  unique match in the file, nothing one piece adds used by another, and the same result as the whole.
+- An edit that leaves `{`, `(` or `[` unbalanced (small models sometimes drop a closing `}`) keeps its
+  buttons but warns that the code probably won't compile. A `FILE:` line separated from its edit by a
+  blank line no longer shows up as stray text with the card labelled "Active Document".
+- When a small model types out the file in a code block with an edit in the middle of it, the answer
+  shows one edit of just the change (or, if the code isn't the whole file, the code and the edit
+  separately) instead of falling apart into plain text.
+- **Rollback works after a restart.** Outside a git repository, the last 20 AI edits were kept only in
+  memory and lost when VS Code closed; they're now saved with the workspace (edits to unsaved files
+  excepted). If a file changed after the edit, **Vedara: Rollback Last Applied Diff** asks before
+  overwriting those later changes.
+- The "Frugal Diff" commands are now **Vedara: Apply Edit from Selection or Clipboard** and **Vedara:
+  Preview Edit from Selection or Clipboard** (same command IDs, so keybindings keep working).
+
 ## 0.1.1 (preview)
 
 - While an answer streams, each code block and edit shows as one progress line ("Writing edit to
